@@ -15,13 +15,17 @@ layout(binding = 0) uniform ParameterUBO
 	float deltaTime;
 } ubo;
 
+layout(binding = 1, r32f) uniform readonly image2D inputImage;
+layout(binding = 2, r32f) uniform writeonly image2D outputImage;
+
+
 // Binding was set in the descriptor sets of the buffers
-layout (std140, binding = 1) readonly buffer ParticleSSBOIn
+layout (std140, binding = 3) readonly buffer ParticleSSBOIn
 {
 	Particle particlesIn[];
 };
 
-layout(std140, binding = 2) buffer ParticleSSBOOut
+layout(std140, binding = 4) buffer ParticleSSBOOut
 {
 	Particle particlesOut[];
 };
