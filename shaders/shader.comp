@@ -14,8 +14,8 @@ layout(binding = 0) uniform ParameterUBO
 	float deltaTime;
 } ubo;
 
-layout(binding = 1, r32f) uniform readonly image2D inputImage;
-layout(binding = 2, r32f) uniform writeonly image2D outputImage;
+layout(binding = 1, rg32f) uniform readonly image2D vRGrid;
+layout(binding = 2, rg32f) uniform writeonly image2D vWGrid;
 
 layout (std140, binding = 3) readonly buffer ParticleSSBOIn
 {

@@ -162,7 +162,7 @@ private:
 	VkPipelineLayout pipelineLayout;
 	VkPipeline graphicsPipeline;
 
-	DescriptorAllocator descriptorAllocator;
+	dsl::DescriptorAllocator descriptorAllocator;
 	
 	std::vector<VkDescriptorSet> computeDescriptorSets;
 	VkDescriptorSetLayout computeDescriptorSetLayout;
@@ -203,13 +203,9 @@ private:
 	std::vector<VkDeviceMemory> uniformBuffersMemory;
 	std::vector<void*> uniformBuffersMapped;
 
-	VkImageView readImageView;
-	VkImage readImage;
-	VkDeviceMemory readImageMemory;
-
-	VkImageView writeImageView;
-	VkImage writeImage;
-	VkDeviceMemory writeImageMemory;
+	std::vector<VkImageView> vGridImageViews;
+	std::vector<VkImage> vGridImages;
+	std::vector<VkDeviceMemory> vGridImagesMemory;
 
 	int dimensions = 1 << 7;
 
@@ -382,7 +378,7 @@ private:
 		recordCommandBuffer(commandBuffers[currentFrame], imageIndex);
 
 		VkSemaphore waitSemaphores[] = { computeFinishedSemaphores[currentFrame], imageAvailableSemaphores[currentFrame] };
-		VkPipelineStageFlags waitStages[]{ VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+		VkPipelineStageFlags waitStages[]{ VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
 
 		submitInfo = {};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -681,11 +677,12 @@ private:
 
 		vkDestroyDescriptorSetLayout(device, computeDescriptorSetLayout, nullptr);
 
-		vkDestroyImage(device, readImage, nullptr);
-		vkFreeMemory(device, readImageMemory, nullptr);
-
-		vkDestroyImage(device, writeImage, nullptr);
-		vkFreeMemory(device, writeImageMemory, nullptr);
+		for (size_t i = 0; i < 2; i++)
+		{
+			vkDestroyImageView(device, vGridImageViews[i], nullptr);
+			vkDestroyImage(device, vGridImages[i], nullptr);
+			vkFreeMemory(device, vGridImagesMemory[i], nullptr);
+		}
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
@@ -1326,7 +1323,7 @@ private:
 		constants.cellSize = 1;
 		constants.dimensions = dimensions;
 
-		vkCmdPushConstants(commandBuffer, computePipelineLayout, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, sizeof(ComputePushConstants), &constants);
+		vkCmdPushConstants(commandBuffer, computePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &constants);
 
 		vkCmdDispatch(commandBuffer, PARTICLE_COUNT / KERNEL_SIZE, 1, 1);
 
@@ -1449,7 +1446,7 @@ private:
 
 	void createComputeDescriptors()
 	{
-		std::vector<DescriptorAllocator::PoolSizeRatio> sizes =
+		std::vector<dsl::DescriptorAllocator::PoolSizeRatio> sizes =
 		{
 			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0.2f },
 			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 0.4f },
@@ -1458,7 +1455,7 @@ private:
 
 		descriptorAllocator.initPool(device, MAX_FRAMES_IN_FLIGHT * 5, sizes);
 
-		DescriptorLayoutBuilder builder;
+		dsl::DescriptorLayoutBuilder builder{};
 		builder.addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
 		builder.addBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
 		builder.addBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
@@ -1491,7 +1488,7 @@ private:
 
 			VkDescriptorImageInfo storageImageReadInfo{};
 			storageImageReadInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-			storageImageReadInfo.imageView = readImageView;
+			storageImageReadInfo.imageView = vGridImageViews[i % 2];
 			storageImageReadInfo.sampler = nullptr;
 
 			descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1504,7 +1501,7 @@ private:
 
 			VkDescriptorImageInfo storageImageWriteInfo{};
 			storageImageWriteInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-			storageImageWriteInfo.imageView = writeImageView;
+			storageImageWriteInfo.imageView = vGridImageViews[(i + 1) % 2];
 			storageImageWriteInfo.sampler = nullptr;
 
 			descriptorWrites[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1562,15 +1559,17 @@ private:
 
 	void createImages()
 	{
-		createImage(dimensions, dimensions, VK_FORMAT_R32_SFLOAT, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_STORAGE_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, readImage, readImageMemory);
-		transitionImageLayout(readImage, VK_FORMAT_R32_SFLOAT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-		clearImage(readImage);
-		transitionImageLayout(readImage, VK_FORMAT_R32_SFLOAT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+		vGridImages.resize(2);
+		vGridImagesMemory.resize(2);
+		vGridImageViews.resize(2);
 
-		createImage(dimensions, dimensions, VK_FORMAT_R32_SFLOAT, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_STORAGE_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, writeImage, writeImageMemory);
-		transitionImageLayout(writeImage, VK_FORMAT_R32_SFLOAT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-		clearImage(writeImage);
-		transitionImageLayout(writeImage, VK_FORMAT_R32_SFLOAT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+		for (size_t i = 0; i < 2; i++)
+		{
+			createImage(dimensions, dimensions, VK_FORMAT_R32G32_SFLOAT, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_STORAGE_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vGridImages[i], vGridImagesMemory[i]);
+			transitionImageLayout(vGridImages[i], VK_FORMAT_R32G32_SFLOAT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+			clearImage(vGridImages[i]);
+			transitionImageLayout(vGridImages[i], VK_FORMAT_R32G32_SFLOAT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+		}
 	}
 
 	void createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory)
@@ -1744,8 +1743,10 @@ private:
 
 	void createImageViews()
 	{
-		createImageView(readImage, readImageView, VK_FORMAT_R32_SFLOAT);
-		createImageView(writeImage, writeImageView, VK_FORMAT_R32_SFLOAT);
+		for (size_t i = 0; i < 2; i++)
+		{
+			createImageView(vGridImages[i], vGridImageViews[i], VK_FORMAT_R32G32_SFLOAT);
+		}
 	}
 
 	void createImageView(VkImage image, VkImageView& imageView, VkFormat format)

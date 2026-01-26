@@ -23,5 +23,5 @@ target_link_libraries(MpmVulkan
 		glfw
 		glm
 		Vulkan::Vulkan
-		DescriptorLib
+		dsl
 )
