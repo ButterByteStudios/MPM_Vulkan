@@ -17,12 +17,14 @@ layout(binding = 0) uniform ParameterUBO
 layout(binding = 1, rg32f) uniform readonly image2D vRGrid;
 layout(binding = 2, rg32f) uniform writeonly image2D vWGrid;
 
-layout (std140, binding = 3) readonly buffer ParticleSSBOIn
+layout(binding = 3, rg32f) uniform writeonly image2D mGrid;
+
+layout (std140, binding = 4) readonly buffer ParticleSSBOIn
 {
 	Particle particlesIn[];
 };
 
-layout(std140, binding = 4) buffer ParticleSSBOOut
+layout(std140, binding = 5) buffer ParticleSSBOOut
 {
 	Particle particlesOut[];
 };

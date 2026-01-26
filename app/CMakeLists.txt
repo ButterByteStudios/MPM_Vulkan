@@ -18,6 +18,8 @@ FetchContent_MakeAvailable(glm)
 
 add_executable(MpmVulkan "MpmVulkan.cpp")
 
+add_dependencies(MpmVulkan shaders)
+
 target_link_libraries(MpmVulkan 
 	PRIVATE 
 		glfw
