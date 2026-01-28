@@ -26,4 +26,5 @@ target_link_libraries(MpmVulkan
 		glm
 		Vulkan::Vulkan
 		dsl
+		ldl
 )

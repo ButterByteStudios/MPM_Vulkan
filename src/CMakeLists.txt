@@ -1,1 +1,2 @@
-﻿add_subdirectory("descriptor")
+﻿add_subdirectory("dsl")
+add_subdirectory("ldl")
