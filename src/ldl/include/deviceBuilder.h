@@ -51,6 +51,8 @@ namespace ldl
 		bool checkDeviceExtensionSupport(VkPhysicalDevice device);
 
 		bool checkDeviceSubgroupSupport(VkPhysicalDevice device);
+
+		bool checkDeviceTimelineSupport(VkPhysicalDevice device);
 		
 		bool checkDeviceAtomicsSupport(VkPhysicalDevice device);
 

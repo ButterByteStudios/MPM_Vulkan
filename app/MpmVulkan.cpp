@@ -183,8 +183,9 @@ private:
 	std::vector<VkSemaphore> imageAquireSemaphores;
 	std::vector<VkSemaphore> imageSubmitSemaphores;
 	std::vector<VkFence> inFlightFences;
-
 	std::vector<VkSemaphore> computeFinishedSemaphores;
+	VkSemaphore timelineSemaphore;
+	uint64_t cycle = 0;
 
 	float lastFrameTime = 0.0f;
 	double lastTime = 0.0;
@@ -274,7 +275,7 @@ private:
 		appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
 		appInfo.pEngineName = "No Engine";
 		appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-		appInfo.apiVersion = VK_API_VERSION_1_1;
+		appInfo.apiVersion = VK_API_VERSION_1_2;
 
 		VkInstanceCreateInfo createInfo{};
 		createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
