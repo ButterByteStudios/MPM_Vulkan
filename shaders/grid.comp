@@ -10,19 +10,37 @@ layout(binding = 0) uniform ParameterUBO
 	float invDx;
 } ubo;
 
-layout(std140, binding = 1) readonly buffer GridVelocitySSBOIn
+struct Particle
 {
-	vec2 vRGrid[];
+	vec2 position;
+	mat2 F;
+	float mass;
+	vec4 color;
 };
 
-layout(std140, binding = 2) writeonly buffer GridVelocitySSBOOut
+layout(std140, binding = 1) writeonly buffer GridVelocitySSBOOut
 {
 	vec2 vWGrid[];
 };
 
-layout(std140, binding = 3) buffer GridMassSSBO
+layout(std140, binding = 2) readonly buffer GridVelocitySSBOIn
+{
+	vec2 vRGrid[];
+};
+
+layout(std140, binding = 3) buffer GridMassSSBOIn
 {
 	float mGrid[];
+};
+
+layout (std140, binding = 4) readonly buffer ParticleSSBOIn
+{
+	Particle particlesIn[];
+};
+
+layout(std140, binding = 5) buffer ParticleSSBOOut
+{
+	Particle particlesOut[];
 };
 
 layout(push_constant) uniform PushConstants {
@@ -34,7 +52,7 @@ uint index(uint x, uint y)
 	return x + y * ubo.dimensions;
 }
 
-layout(local_size_x = 256, local_size_y = 256, local_size_z = 1) in;
+layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
 
 void main()
 {

@@ -160,7 +160,9 @@ private:
 	std::vector<VkDescriptorSet> computeDescriptorSets;
 	VkDescriptorSetLayout computeDescriptorSetLayout;
 	VkPipelineLayout computePipelineLayout;
-	VkPipeline computePipeline;
+
+	VkPipeline gridComputePipeline;
+	VkPipeline g2p2gComputePipeline;
 
 	VkSwapchainKHR swapChain;
 	std::vector<VkImage> swapChainImages;
@@ -182,7 +184,6 @@ private:
 	std::vector<VkSemaphore> imageSubmitSemaphores;
 	std::vector<VkFence> inFlightFences;
 
-	std::vector<VkFence> computeInFlightFences;
 	std::vector<VkSemaphore> computeFinishedSemaphores;
 
 	float lastFrameTime = 0.0f;
@@ -254,7 +255,7 @@ private:
 		createShaderStorageBuffers();
 		createUniformBuffers();
 		createComputeDescriptors();
-		createComputePipeline();
+		createComputePipelines();
 		createCommandBuffers();
 		createComputeCommandBuffers();
 		createSyncObjects();
@@ -337,24 +338,6 @@ private:
 		VkSubmitInfo submitInfo{};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
-		vkWaitForFences(device, 1, &computeInFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
-		vkResetFences(device, 1, &computeInFlightFences[currentFrame]);
-
-		updateUniformBuffer(currentFrame);
-
-		vkResetCommandBuffer(computeCommandBuffers[currentFrame], 0);
-		recordComputeCommandBuffer(computeCommandBuffers[currentFrame]);
-
-		submitInfo.commandBufferCount = 1;
-		submitInfo.pCommandBuffers = &computeCommandBuffers[currentFrame];
-		submitInfo.signalSemaphoreCount = 1;
-		submitInfo.pSignalSemaphores = &computeFinishedSemaphores[currentFrame];
-
-		if (vkQueueSubmit(computeQueue, 1, &submitInfo, computeInFlightFences[currentFrame]) != VK_SUCCESS)
-		{
-			throw std::runtime_error("Failed to submit compute command buffer.");
-		}
-
 		vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
 
 		uint32_t imageIndex;
@@ -371,6 +354,21 @@ private:
 		}
 
 		vkResetFences(device, 1, &inFlightFences[currentFrame]);
+
+		updateUniformBuffer(currentFrame);
+
+		vkResetCommandBuffer(computeCommandBuffers[currentFrame], 0);
+		recordComputeCommandBuffer(computeCommandBuffers[currentFrame]);
+
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &computeCommandBuffers[currentFrame];
+		submitInfo.signalSemaphoreCount = 1;
+		submitInfo.pSignalSemaphores = &computeFinishedSemaphores[currentFrame];
+
+		if (vkQueueSubmit(computeQueue, 1, &submitInfo, nullptr) != VK_SUCCESS)
+		{
+			throw std::runtime_error("Failed to submit compute command buffer.");
+		}
 
 		vkResetCommandBuffer(commandBuffers[currentFrame], 0);
 		recordCommandBuffer(commandBuffers[currentFrame], imageIndex);
@@ -874,17 +872,28 @@ private:
 		vkDestroyShaderModule(device, vertShaderModule, nullptr);
 	}
 
-	void createComputePipeline()
+	void createComputePipelines()
 	{
-		auto computeShaderCode = readFile("../shaders/g2p2g.comp.spv");
+		auto g2p2gComputeShaderCode = readFile("../shaders/g2p2g.comp.spv");
+		auto gridComputeShaderCode = readFile("../shaders/grid.comp.spv");
 
-		VkShaderModule computeShaderModule = createShaderModule(computeShaderCode);
+		std::vector<VkShaderModule> shaderModules =
+		{
+			createShaderModule(g2p2gComputeShaderCode),
+			createShaderModule(gridComputeShaderCode)
+		};
 
-		VkPipelineShaderStageCreateInfo computeShaderStageInfo{};
-		computeShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-		computeShaderStageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-		computeShaderStageInfo.module = computeShaderModule;
-		computeShaderStageInfo.pName = "main";
+		std::vector<VkPipelineShaderStageCreateInfo> stageInfos{};
+		for (VkShaderModule module : shaderModules)
+		{
+			VkPipelineShaderStageCreateInfo computeStageInfo{};
+			computeStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+			computeStageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+			computeStageInfo.module = module;
+			computeStageInfo.pName = "main";
+
+			stageInfos.push_back(computeStageInfo);
+		}
 
 		VkPushConstantRange range{};
 		range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
@@ -903,17 +912,31 @@ private:
 			throw std::runtime_error("Failed to create compute pipeline layout.");
 		}
 
-		VkComputePipelineCreateInfo pipelineInfo{};
-		pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-		pipelineInfo.layout = computePipelineLayout;
-		pipelineInfo.stage = computeShaderStageInfo;
+		std::vector<VkComputePipelineCreateInfo> pipelineInfos{};
 
-		if (vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &computePipeline) != VK_SUCCESS)
+		for (VkPipelineShaderStageCreateInfo stageInfo : stageInfos)
 		{
-			throw std::runtime_error("Failed to create compute pipeline.");
+			VkComputePipelineCreateInfo pipelineInfo{};
+			pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+			pipelineInfo.layout = computePipelineLayout;
+			pipelineInfo.stage = stageInfo;
+
+			pipelineInfos.push_back(pipelineInfo);
 		}
 
-		vkDestroyShaderModule(device, computeShaderModule, nullptr);
+		std::vector<VkPipeline> pipelines(2);
+		if (vkCreateComputePipelines(device, VK_NULL_HANDLE, pipelineInfos.size(), pipelineInfos.data(), nullptr, pipelines.data()) != VK_SUCCESS)
+		{
+			throw std::runtime_error("Failed to create compute pipelines.");
+		}
+
+		g2p2gComputePipeline = pipelines[0];
+		gridComputePipeline = pipelines[1];
+
+		for (VkShaderModule module : shaderModules)
+		{
+			vkDestroyShaderModule(device, module, nullptr);
+		}
 	}
 
 	void createFrameBuffers()
@@ -1065,7 +1088,7 @@ private:
 			throw std::runtime_error("Failed to begin recording compute command buffer.");
 		}
 
-		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, g2p2gComputePipeline);
 
 		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &computeDescriptorSets[currentFrame], 0, nullptr);
 
@@ -1087,7 +1110,6 @@ private:
 		imageAquireSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
 		inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
 
-		computeInFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
 		computeFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
 
 		VkSemaphoreCreateInfo semaphoreInfo{};
@@ -1105,8 +1127,7 @@ private:
 				throw std::runtime_error("Failed to create sync objects for a frame.");
 			}
 
-			if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &computeFinishedSemaphores[i]) != VK_SUCCESS ||
-				vkCreateFence(device, &fenceInfo, nullptr, &computeInFlightFences[i]) != VK_SUCCESS)
+			if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &computeFinishedSemaphores[i]) != VK_SUCCESS)
 			{
 				throw std::runtime_error("Failed to create compute sync objects for a frame.");
 			}
@@ -1725,7 +1746,8 @@ private:
 		vkDestroyPipeline(device, graphicsPipeline, nullptr);
 		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
 
-		vkDestroyPipeline(device, computePipeline, nullptr);
+		vkDestroyPipeline(device, g2p2gComputePipeline, nullptr);
+		vkDestroyPipeline(device, gridComputePipeline, nullptr);
 		vkDestroyPipelineLayout(device, computePipelineLayout, nullptr);
 
 		vkDestroyRenderPass(device, renderPass, nullptr);
@@ -1761,7 +1783,6 @@ private:
 			vkDestroyFence(device, inFlightFences[i], nullptr);
 
 			vkDestroySemaphore(device, computeFinishedSemaphores[i], nullptr);
-			vkDestroyFence(device, computeInFlightFences[i], nullptr);
 		}
 
 		vkDestroyCommandPool(device, graphicsCommandPool, nullptr);
