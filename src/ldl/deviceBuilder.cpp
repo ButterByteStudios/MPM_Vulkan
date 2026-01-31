@@ -24,7 +24,6 @@ namespace ldl
 		bool swapChainAdequate = false;
 		bool subgroupsSupported = false;
 		bool atomicsSupported = false;
-		bool timelineSemaphoreSupported = false;
 		if (extensionsSupported)
 		{
 			SwapChainSupportDetails swapChainSupport = querySwapChainSupport(physicalDevice);
@@ -32,7 +31,6 @@ namespace ldl
 
 			subgroupsSupported = checkDeviceSubgroupSupport(physicalDevice);
 			atomicsSupported = checkDeviceAtomicsSupport(physicalDevice);
-			timelineSemaphoreSupported = checkDeviceTimelineSupport(physicalDevice);
 		}
 
 		bool hasIndices = true;
@@ -88,18 +86,6 @@ namespace ldl
 		// subgroupProperties.subgroupSize can be used for particle aosoa struct array size and can be passed to gpu for proper indexing
 		return ((subgroupProperties.supportedOperations & requiredOperationFlags) == requiredOperationFlags) &&
 			((subgroupProperties.supportedStages & requiredStageFlags) == requiredStageFlags);
-	}
-
-	bool DeviceBuilder::checkDeviceTimelineSupport(VkPhysicalDevice device)
-	{
-		VkPhysicalDeviceTimelineSemaphoreFeatures timelineFeatures{};
-		timelineFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES;
-
-		VkPhysicalDeviceFeatures2 physicalDeviceFeatures{};
-		physicalDeviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-		physicalDeviceFeatures.pNext = &timelineFeatures;
-
-		return timelineFeatures.timelineSemaphore == VK_TRUE;
 	}
 
 	bool DeviceBuilder::checkDeviceAtomicsSupport(VkPhysicalDevice device)
@@ -220,11 +206,6 @@ namespace ldl
 		atomicFloatFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_FEATURES_EXT;
 		atomicFloatFeatures.shaderBufferFloat32AtomicAdd = VK_TRUE;
 
-		VkPhysicalDeviceTimelineSemaphoreFeatures timelineFeatures{};
-		timelineFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES;
-		timelineFeatures.timelineSemaphore = true;
-		timelineFeatures.pNext = &atomicFloatFeatures;
-
 		VkDeviceCreateInfo deviceInfo{};
 		deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
 
@@ -233,7 +214,7 @@ namespace ldl
 		deviceInfo.pEnabledFeatures = &deviceFeatures;
 		deviceInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
 		deviceInfo.ppEnabledExtensionNames = deviceExtensions.data();
-		deviceInfo.pNext = &timelineFeatures;
+		deviceInfo.pNext = &atomicFloatFeatures;
 
 		if (enableValidationLayers) {
 			deviceInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
