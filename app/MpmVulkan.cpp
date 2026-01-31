@@ -22,7 +22,6 @@
 #include <fstream>
 #include <array>
 #include <random>
-#include <unordered_map>
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -63,12 +62,27 @@ struct PushConstants
 	float dt = 1.0f;
 };
 
+// WATCH FOR ALIGNMENT ISSUES. 
+// Struct on the gpu require structsizes to be a multiple of 16.
+// Individual variables (such as float, vec2, vec3, vec4) need to be on an adress divisible by their alignment.
+// std140 automatically padds all types to 16 while std430 packs tighter.
+// Scalar types (float, int, etc): 4.
+// vec2: 8.
+// vec3: 16!!
+// vec4: 16.
+// mat2: 8 per collumn.
+// mat3: 16 per collumn (3 vec4s).
+// mat4: 16 per collumn.
+
 struct Particle
 {
-	glm::vec2 position;
-	glm::mat2 F;
-	float mass;
-	glm::vec4 color;
+	glm::vec4 color; // 16
+	glm::mat2 F; // 8 + 8
+	glm::vec2 position; // 8
+	float mass; // 4
+	float pad;
+	// Max alignment = 16, so pad till nearest multiple of 16;
+	// Total size 48 = 16 * 3
 
 	static VkVertexInputBindingDescription getBindingDescription()
 	{
@@ -272,7 +286,7 @@ private:
 
 		VkApplicationInfo appInfo{};
 		appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-		appInfo.pApplicationName = "Hello Triangle";
+		appInfo.pApplicationName = "MpmVulkan";
 		appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
 		appInfo.pEngineName = "No Engine";
 		appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
@@ -420,7 +434,8 @@ private:
 		currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 	}
 
-	void updateUniformBuffer(uint32_t currentImage) {
+	void updateUniformBuffer(uint32_t currentImage)
+	{
 		UniformBufferObject ubo{};
 		ubo.dimensions = dimensions;
 		ubo.k = k;

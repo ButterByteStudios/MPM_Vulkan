@@ -5,10 +5,10 @@
 
 struct Particle
 {
-	vec2 position;
-	mat2 F;
-	float mass;
 	vec4 color;
+	mat2 F;
+	vec2 position;
+	float mass;
 };
 
 layout(binding = 0) uniform ParameterUBO
@@ -21,27 +21,27 @@ layout(binding = 0) uniform ParameterUBO
 	float invDx;
 } ubo;
 
-layout(std140, binding = 1) readonly buffer GridVelocitySSBOIn
+layout(std430, binding = 1) readonly buffer GridVelocitySSBOIn
 {
 	vec2 vRGrid[];
 };
 
-layout(std140, binding = 2) writeonly buffer GridVelocitySSBOOut
+layout(std430, binding = 2) writeonly buffer GridVelocitySSBOOut
 {
 	vec2 vWGrid[];
 };
 
-layout(std140, binding = 3) writeonly buffer GridMassSSBOOut
+layout(std430, binding = 3) writeonly buffer GridMassSSBOOut
 {
 	float mGrid[];
 };
 
-layout (std140, binding = 4) buffer ParticleSSBOIn
+layout (std430, binding = 4) buffer ParticleSSBOIn
 {
 	Particle particlesIn[];
 };
 
-layout(std140, binding = 5) buffer ParticleSSBOOut
+layout(std430, binding = 5) buffer ParticleSSBOOut
 {
 	Particle particlesOut[];
 };
