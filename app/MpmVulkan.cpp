@@ -26,7 +26,7 @@
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
 const int MAX_FRAMES_IN_FLIGHT = 2;
-const int PARTICLE_COUNT = 1 << 12;
+const int PARTICLE_COUNT = 1 << 19;
 const int PARTICLE_KERNEL_SIZE = 256;
 const int GRID_KERNEL_SIZE = 32;
 
@@ -49,29 +49,30 @@ const bool enableValidationLayers = true;
 
 struct UniformBufferObject
 {
-	int dimensions;
 	float k;
 	float mu;
 	float rho;
-	float dx;
-	float invDx;
 };
 
 struct PushConstants
 {
 	float dt = 1.0f;
+	float dx = 1.0f;
+	float invDx = 1.0f;
+	int dimensions;
 };
 
 // WATCH FOR ALIGNMENT ISSUES. 
-// Struct on the gpu require structsizes to be a multiple of 16.
-// Individual variables (such as float, vec2, vec3, vec4) need to be on an adress divisible by their alignment.
-// std140 automatically padds all types to 16 while std430 packs tighter.
+// Structs on the gpu need to be a multiple of an alignment value. 
+// In std140 this is automatically a multiple of 16.
+// In std430 this is the largest alignment in the struct.
+// Individual variables (such as float, vec2, vec3, vec4) need to be on an adress divisible by their alignment. They are automatically padded if they dont line up.
 // Scalar types (float, int, etc): 4.
 // vec2: 8.
 // vec3: 16!!
 // vec4: 16.
 // mat2: 8 per collumn.
-// mat3: 16 per collumn (3 vec4s).
+// mat3: 16 per collumn (3 vec3s padded to vec4).
 // mat4: 16 per collumn.
 
 struct Particle
@@ -80,8 +81,8 @@ struct Particle
 	glm::mat2 F; // 8 + 8
 	glm::vec2 position; // 8
 	float mass; // 4
-	float pad;
-	// Max alignment = 16, so pad till nearest multiple of 16;
+	float pad; // 4
+	// Max alignment = 16, so pad till nearest multiple of 16
 	// Total size 48 = 16 * 3
 
 	static VkVertexInputBindingDescription getBindingDescription()
@@ -202,9 +203,6 @@ private:
 	std::vector<VkSemaphore> computeFinishedSemaphores;
 	std::vector<VkFence> computeInFlightFences;
 
-	float lastFrameTime = 0.0f;
-	double lastTime = 0.0;
-
 	bool framebufferResized = false;
 
 	uint32_t currentFrame = 0;
@@ -222,11 +220,13 @@ private:
 	std::vector<VkDeviceMemory> uniformBuffersMemory;
 	std::vector<void*> uniformBuffersMapped;
 
-	int dimensions = 1 << 7;
+	int dimensions = 1 << 6;
 	float mass = 1.0f;
-	float k = 10000;
-	float mu = 0.4;
+	float E = 100000;
+	float v = 0.45;
 	float rho = 100;
+	float dx = 2.0f;
+	float dt = 0.01f;
 
 	void mainLoop()
 	{
@@ -234,10 +234,6 @@ private:
 		{
 			glfwPollEvents();
 			drawFrame();
-
-			double currentTime = glfwGetTime();
-			lastFrameTime = (currentTime - lastTime) * 1000.0;
-			lastTime = currentTime;
 		}
 
 		vkDeviceWaitIdle(device);
@@ -252,8 +248,6 @@ private:
 		window = glfwCreateWindow(WIDTH, HEIGHT, "MpmVulkan", nullptr, nullptr);
 		glfwSetWindowUserPointer(window, this);
 		glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
-
-		lastTime = glfwGetTime();
 	}
 
 	void initVulkan()
@@ -437,12 +431,9 @@ private:
 	void updateUniformBuffer(uint32_t currentImage)
 	{
 		UniformBufferObject ubo{};
-		ubo.dimensions = dimensions;
-		ubo.k = k;
-		ubo.mu = mu;
+		ubo.k = E / (3.0f - 6.0f * v);
+		ubo.mu = E / (2.0f * (1.0f + v));
 		ubo.rho = rho;
-		ubo.dx = 1.0f;
-		ubo.invDx = 1.0f / 1.0f;
 
 		memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
 	}
@@ -537,7 +528,7 @@ private:
 		deviceBuilder.validationLayers = validationLayers;
 
 		deviceBuilder.addQueue(VK_QUEUE_GRAPHICS_BIT, 0, 1.0f, false);
-		deviceBuilder.addQueue(VK_QUEUE_COMPUTE_BIT, 0, 1.0f, false);
+		deviceBuilder.addQueue(VK_QUEUE_COMPUTE_BIT, VK_QUEUE_GRAPHICS_BIT, 1.0f, false);
 		deviceBuilder.addQueue(0, 0, 1.0f, true);
 
 		deviceBuilder.pickPhysicalDevice(physicalDevice);
@@ -547,13 +538,11 @@ private:
 		deviceBuilder.getQueue(VK_QUEUE_GRAPHICS_BIT, 0, false, graphicsQueue);
 		graphicsFamilyIndex = deviceBuilder.getQueueFamily(VK_QUEUE_GRAPHICS_BIT, 0, false);
 
-		deviceBuilder.getQueue(VK_QUEUE_COMPUTE_BIT, 0, false, computeQueue);
-		computeFamilyIndex = deviceBuilder.getQueueFamily(VK_QUEUE_COMPUTE_BIT, 0, false);
+		deviceBuilder.getQueue(VK_QUEUE_COMPUTE_BIT, VK_QUEUE_GRAPHICS_BIT, false, computeQueue);
+		computeFamilyIndex = deviceBuilder.getQueueFamily(VK_QUEUE_COMPUTE_BIT, VK_QUEUE_GRAPHICS_BIT, false);
 
 		deviceBuilder.getQueue(0, 0, true, presentQueue);
 		presentFamilyIndex = deviceBuilder.getQueueFamily(0, 0, false);
-
-		std::cout << graphicsFamilyIndex << computeFamilyIndex << presentFamilyIndex;
 	}
 
 	static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback
@@ -845,12 +834,17 @@ private:
 		colorBlending.blendConstants[2] = 0.0f;
 		colorBlending.blendConstants[3] = 0.0f;
 
+		VkPushConstantRange range{};
+		range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+		range.offset = 0;
+		range.size = sizeof(PushConstants);
+
 		VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
 		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 		pipelineLayoutInfo.setLayoutCount = 0;
 		pipelineLayoutInfo.pSetLayouts = nullptr;
-		pipelineLayoutInfo.pushConstantRangeCount = 0;
-		pipelineLayoutInfo.pPushConstantRanges = nullptr;
+		pipelineLayoutInfo.pushConstantRangeCount = 1;
+		pipelineLayoutInfo.pPushConstantRanges = &range;
 
 		if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS)
 		{
@@ -1081,6 +1075,14 @@ private:
 		VkDeviceSize offsets[] = { 0 };
 		vkCmdBindVertexBuffers(commandBuffer, 0, 1, &particleBuffers[currentFrame], offsets);
 
+		PushConstants constants{};
+		constants.dt = dt;
+		constants.dx = dx;
+		constants.invDx = 1.0f / dx;
+		constants.dimensions = dimensions;
+
+		vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants), &constants);
+
 		vkCmdDraw(commandBuffer, PARTICLE_COUNT, 1, 0, 0);
 
 		vkCmdEndRenderPass(commandBuffer);
@@ -1104,29 +1106,33 @@ private:
 		}
 
 		PushConstants constants{};
-		constants.dt = lastFrameTime * 2.0f;
+		constants.dt = dt;
+		constants.dx = dx;
+		constants.invDx = 1.0f / dx;
+		constants.dimensions = dimensions;
+
+		vkCmdPushConstants(commandBuffer, computePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstants), &constants);
+		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &computeDescriptorSets[currentFrame], 0, nullptr);
 
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, g2p2gComputePipeline);
-		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &computeDescriptorSets[currentFrame], 0, nullptr);
-		vkCmdPushConstants(commandBuffer, computePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstants), &constants);
-
 		vkCmdDispatch(commandBuffer, PARTICLE_COUNT / PARTICLE_KERNEL_SIZE, 1, 1);
 
-		//VkMemoryBarrier memoryBarrier{};
-		//memoryBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-		//memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-		//memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-		//
-		//vkCmdPipelineBarrier(commandBuffer, 
-		//	VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-		//	VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-		//	0,
-		//	1, &memoryBarrier,
-		//	0, nullptr,
-		//	0, nullptr);
-		//
-		//vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, gridComputePipeline);
-		//vkCmdDispatch(commandBuffer, dimensions / GRID_KERNEL_SIZE, dimensions / GRID_KERNEL_SIZE, 1);
+		VkMemoryBarrier memoryBarrier{};
+		memoryBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+		memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+		memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+		
+		vkCmdPipelineBarrier(commandBuffer, 
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			0,
+			1, &memoryBarrier,
+			0, nullptr,
+			0, nullptr
+		);
+		
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, gridComputePipeline);
+		vkCmdDispatch(commandBuffer, dimensions / GRID_KERNEL_SIZE, dimensions / GRID_KERNEL_SIZE, 1);
 
 		if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS)
 		{
@@ -1236,6 +1242,9 @@ private:
 			float theta = rndDist(rndEngine) * 2 * 3.14159265358979323846;
 			float x = r * cos(theta) * HEIGHT / WIDTH;
 			float y = r * sin(theta);
+
+			x = (x + 1.0f) / 2.0f * dimensions * dx;
+			y = (y + 1.0f) / 2.0f * dimensions * dx;
 
 			particle.position = glm::vec2(x, y);
 			particle.F = glm::mat2(1.0f);

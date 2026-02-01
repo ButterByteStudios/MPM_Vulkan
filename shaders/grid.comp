@@ -2,12 +2,9 @@
 
 layout(binding = 0) uniform ParameterUBO
 {
-    int dimensions;
 	float k;
 	float mu;
 	float rho;
-	float dx;
-	float invDx;
 } ubo;
 
 struct Particle
@@ -18,14 +15,14 @@ struct Particle
 	float mass;
 };
 
-layout(std430, binding = 1) writeonly buffer GridVelocitySSBOOut
+layout(std430, binding = 1) writeonly buffer GridVelocitySSBOClear
 {
-	vec2 vWGrid[];
+	vec2 vClearGrid[];
 };
 
-layout(std430, binding = 2) readonly buffer GridVelocitySSBOIn
+layout(std430, binding = 2) buffer GridVelocitySSBONormalize
 {
-	vec2 vRGrid[];
+	vec2 vGrid[];
 };
 
 layout(std430, binding = 3) buffer GridMassSSBOIn
@@ -45,11 +42,14 @@ layout(std430, binding = 5) writeonly buffer ParticleSSBOOut
 
 layout(push_constant) uniform PushConstants {
 	float dt;
+	float dx;
+	float invDx;
+	int dimensions;
 } pc;
 
 uint index(uint x, uint y)
 {
-	return x + y * ubo.dimensions;
+	return x + y * pc.dimensions;
 }
 
 layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
@@ -61,24 +61,25 @@ void main()
     
     uint i = index(x, y);
 
-	vec2 v = vRGrid[i];
+	vec2 v = vGrid[i];
 	float m = mGrid[i];
 
 	// Reset mass for next steps scatter
 	mGrid[i] = 0;
+	vClearGrid[i] = vec2(0);
 
 	bool left = x <= 1;
-	bool right = x >= ubo.dimensions - 2;
+	bool right = x >= pc.dimensions - 2;
 	bool down = y <= 1;
-	bool up = y >= ubo.dimensions - 2;
+	bool up = y >= pc.dimensions - 2;
 
 	if (m == 0 || left || right || down || up)
 	{
 		// Simple no slip boundary
-		vWGrid[i] = vec2(0);
+		vGrid[i] = vec2(0);
 		return;
 	}
 
 	// Convert momentum to velocity
-	vWGrid[i] = v / m + vec2(0, 9.81 * pc.dt);
+	vGrid[i] = v / m + vec2(0, -9.81 * pc.dt);
 }

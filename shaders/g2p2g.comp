@@ -13,12 +13,9 @@ struct Particle
 
 layout(binding = 0) uniform ParameterUBO
 {
-	int dimensions;
 	float k;
 	float mu;
 	float rho;
-	float dx;
-	float invDx;
 } ubo;
 
 layout(std430, binding = 1) readonly buffer GridVelocitySSBOIn
@@ -48,22 +45,32 @@ layout(std430, binding = 5) buffer ParticleSSBOOut
 
 layout(push_constant) uniform PushConstants {
 	float dt;
+	float dx;
+	float invDx;
+	int dimensions;
 } pc;
 
-float quadraticWeight2(float x)
+float qw0(float x)
 {
-	return 0.75f - x * x;
+	float xp = 1.5 - x;
+	return 0.5 * xp * xp;
 }
 
-float quadraticWeight1(float x)
+float qw1(float x)
 {
-	float v = x - (2 / 3);
-	return 0.5f * v * v;
+	float xp = x - 1.0;
+	return 0.75 - xp * xp;
+}
+
+float qw2(float x)
+{
+	float xp = x - 0.5;
+	return 0.5 * xp * xp;
 }
 
 int index(int x, int y)
 {
-	return x + y * ubo.dimensions;
+	return x + y * pc.dimensions;
 }
 
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
@@ -71,41 +78,35 @@ layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 void main()
 {
 	uint pIndex = gl_GlobalInvocationID.x;
-	particlesOut[pIndex].position = vec2(0, 0);
-	particlesIn[pIndex].position = vec2(0, 0);
-}
-
-void main2()
-{
-	uint pIndex = gl_GlobalInvocationID.x;
 
 	Particle particleIn = particlesIn[pIndex];
 
-	vec2 position = (particleIn.position + 1) / 2 * ubo.dimensions;
-	ivec2 coords = ivec2(round(position));
+	vec2 position = particleIn.position;
+	vec2 cellPosition = position * pc.invDx;
+	ivec2 coords = ivec2(floor(cellPosition - 0.5));
 	
-	vec2 d = position - coords;
+	vec2 d = cellPosition - coords;
 	
-	vec2 d00 = vec2(-d.x, -d.y);
-	vec2 d10 = vec2(-d.x + 1, -d.y);
-	vec2 d20 = vec2(-d.x + 2, -d.y);
+	vec2 d00 = vec2(-d.x + 0, -d.y + 0) * pc.dx;
+	vec2 d10 = vec2(-d.x + 1, -d.y + 0) * pc.dx;
+	vec2 d20 = vec2(-d.x + 2, -d.y + 0) * pc.dx;
 
-	vec2 d01 = vec2(-d.x, -d.y + 1);
-	vec2 d11 = vec2(-d.x + 1, -d.y + 1);
-	vec2 d21 = vec2(-d.x + 2, -d.y + 1);
+	vec2 d01 = vec2(-d.x + 0, -d.y + 1) * pc.dx;
+	vec2 d11 = vec2(-d.x + 1, -d.y + 1) * pc.dx;
+	vec2 d21 = vec2(-d.x + 2, -d.y + 1) * pc.dx;
 
-	vec2 d02 = vec2(-d.x, -d.y + 2);
-	vec2 d12 = vec2(-d.x + 1, -d.y + 2);
-	vec2 d22 = vec2(-d.x + 2, -d.y + 2);
+	vec2 d02 = vec2(-d.x + 0, -d.y + 2) * pc.dx;
+	vec2 d12 = vec2(-d.x + 1, -d.y + 2) * pc.dx;
+	vec2 d22 = vec2(-d.x + 2, -d.y + 2) * pc.dx;
 	
 
-	float uw0 = quadraticWeight1(abs(d.x + 1));
-	float uw1 = quadraticWeight2(abs(d.x));
-	float uw2 = quadraticWeight1(abs(d.x - 1));
+	float uw0 = qw0(d.x);
+	float uw1 = qw1(d.x);
+	float uw2 = qw2(d.x);
 
-	float vw0 = quadraticWeight1(abs(d.y + 1));
-	float vw1 = quadraticWeight2(abs(d.y));
-	float vw2 = quadraticWeight1(abs(d.y - 1));
+	float vw0 = qw0(d.y);
+	float vw1 = qw1(d.y);
+	float vw2 = qw2(d.y);
 
 
 	float w00 = uw0 * vw0;
@@ -120,48 +121,37 @@ void main2()
 	float w12 = uw1 * vw2;
 	float w22 = uw2 * vw2;
 
-	vec2 v00 = vRGrid[index(coords.x + 0, coords.y + 0)] * w00;
-	vec2 v10 = vRGrid[index(coords.x + 1, coords.y + 0)] * w10;
-	vec2 v20 = vRGrid[index(coords.x + 2, coords.y + 0)] * w20;
+	vec2 v00 = vRGrid[index(coords.x + 0, coords.y + 0)];
+	vec2 v10 = vRGrid[index(coords.x + 1, coords.y + 0)];
+	vec2 v20 = vRGrid[index(coords.x + 2, coords.y + 0)];
 
-	vec2 v01 = vRGrid[index(coords.x + 0, coords.y + 1)] * w01;
-	vec2 v11 = vRGrid[index(coords.x + 1, coords.y + 1)] * w11;
-	vec2 v21 = vRGrid[index(coords.x + 2, coords.y + 1)] * w21;
+	vec2 v01 = vRGrid[index(coords.x + 0, coords.y + 1)];
+	vec2 v11 = vRGrid[index(coords.x + 1, coords.y + 1)];
+	vec2 v21 = vRGrid[index(coords.x + 2, coords.y + 1)];
 
-	vec2 v02 = vRGrid[index(coords.x + 0, coords.y + 2)] * w02;
-	vec2 v12 = vRGrid[index(coords.x + 1, coords.y + 2)] * w12;
-	vec2 v22 = vRGrid[index(coords.x + 2, coords.y + 2)] * w22;
+	vec2 v02 = vRGrid[index(coords.x + 0, coords.y + 2)];
+	vec2 v12 = vRGrid[index(coords.x + 1, coords.y + 2)];
+	vec2 v22 = vRGrid[index(coords.x + 2, coords.y + 2)];
 
-	vec2 v = v00 + v10 + v20 + v01 + v11 + v21 + v02 + v12 + v22;
+	vec2 v = v00 * w00 + v10 * w10 + v20 * w20 + 
+			v01 * w01 + v11 * w11 + v21 * w21 + 
+			v02 * w02 + v12 * w12 + v22 * w22;
 
-	mat2 B;
-	B += outerProduct(v00, d00);
-	B += outerProduct(v10, d10);
-	B += outerProduct(v20, d20);
+	mat2 B = mat2(0);
+	B += w00 * outerProduct(v00, d00);
+	B += w10 * outerProduct(v10, d10);
+	B += w20 * outerProduct(v20, d20);
 
-	B += outerProduct(v01, d01);
-	B += outerProduct(v11, d11);
-	B += outerProduct(v21, d21);
+	B += w01 * outerProduct(v01, d01);
+	B += w11 * outerProduct(v11, d11);
+	B += w21 * outerProduct(v21, d21);
 
-	B += outerProduct(v02, d02);
-	B += outerProduct(v12, d12);
-	B += outerProduct(v22, d22);
+	B += w02 * outerProduct(v02, d02);
+	B += w12 * outerProduct(v12, d12);
+	B += w22 * outerProduct(v22, d22);
 
-	mat2 D;
-	D += outerProduct(d00, d00) * w00;
-	D += outerProduct(d10, d10) * w10;
-	D += outerProduct(d20, d20) * w20;
-
-	D += outerProduct(d01, d01) * w01;
-	D += outerProduct(d11, d11) * w11;
-	D += outerProduct(d21, d21) * w21;
-
-	D += outerProduct(d02, d02) * w02;
-	D += outerProduct(d12, d12) * w12;
-	D += outerProduct(d22, d22) * w22;
-
-	mat2 D_inv = inverse(D);
-	mat2 C = B * D_inv;
+	float inv_D = 4.0 / (pc.dx * pc.dx);
+	mat2 C = B * inv_D;
 
 	mat2 F = (mat2(1.0) + C * pc.dt) * particleIn.F;
 
@@ -171,20 +161,33 @@ void main2()
 
 	float mass = particleIn.mass;
 
-	position += clamp(pc.dt * ubo.invDx * v.xy, 0, ubo.dimensions - 2);
-	particlesOut[pIndex].position = position / ubo.dimensions * 2 - 1;
+	position = clamp((position + pc.dt * v) * pc.invDx, vec2(1), vec2(pc.dimensions - 2)) * pc.dx;
+	particlesOut[pIndex].position = position;
 
-	coords = ivec2(round(position));
+	cellPosition = position * pc.invDx;
+	coords = ivec2(floor(cellPosition - 0.5));
 
-	d = position - coords;
+	d = cellPosition - coords;
 
-	uw0 = quadraticWeight1(abs(d.x + 1));
-	uw1 = quadraticWeight2(abs(d.x));
-	uw2 = quadraticWeight1(abs(d.x - 1));
+	d00 = vec2(-d.x + 0, -d.y + 0) * pc.dx;
+	d10 = vec2(-d.x + 1, -d.y + 0) * pc.dx;
+	d20 = vec2(-d.x + 2, -d.y + 0) * pc.dx;
 
-	vw0 = quadraticWeight1(abs(d.y + 1));
-	vw1 = quadraticWeight2(abs(d.y));
-	vw2 = quadraticWeight1(abs(d.y - 1));
+	d01 = vec2(-d.x + 0, -d.y + 1) * pc.dx;
+	d11 = vec2(-d.x + 1, -d.y + 1) * pc.dx;
+	d21 = vec2(-d.x + 2, -d.y + 1) * pc.dx;
+	
+	d02 = vec2(-d.x + 0, -d.y + 2) * pc.dx;
+	d12 = vec2(-d.x + 1, -d.y + 2) * pc.dx;
+	d22 = vec2(-d.x + 2, -d.y + 2) * pc.dx;
+
+	uw0 = qw0(d.x);
+	uw1 = qw1(d.x);
+	uw2 = qw2(d.x);
+
+	vw0 = qw0(d.y);
+	vw1 = qw1(d.y);
+	vw2 = qw2(d.y);
 
 
 	w00 = uw0 * vw0;
@@ -213,18 +216,18 @@ void main2()
 	float volume = mass / ubo.rho;
 	float currentVolume = volume * J;
 	
-	mat2 stress = pc.dt * -volume * cauchy * D_inv;
+	mat2 stress = pc.dt * -volume * cauchy * inv_D;
 	mat2 affine = stress + mass * C;
 
 	vec2 vm = v * mass;
 
 	vec2 vm00 = w00 * (vm + affine * d00);
 	vec2 vm10 = w10 * (vm + affine * d10);
-	vec2 vm20 = w20 * (vm + affine * d20);
-
+	vec2 vm20 = w20 * (vm + affine * d20);	
+	
 	vec2 vm01 = w01 * (vm + affine * d01);
 	vec2 vm11 = w11 * (vm + affine * d11);
-	vec2 vm21 = w21 * (vm + affine * d21);
+	vec2 vm21 = w21 * (vm + affine * d21);	
 	
 	vec2 vm02 = w02 * (vm + affine * d02);
 	vec2 vm12 = w12 * (vm + affine * d12);
@@ -250,4 +253,17 @@ void main2()
 	atomicAdd(vWGrid[index(coords.x + 1, coords.y + 2)].y, vm12.y);
 	atomicAdd(vWGrid[index(coords.x + 2, coords.y + 2)].x, vm22.x);
 	atomicAdd(vWGrid[index(coords.x + 2, coords.y + 2)].y, vm22.y);
+
+
+	atomicAdd(mGrid[index(coords.x + 0, coords.y + 0)], mass * w00);
+	atomicAdd(mGrid[index(coords.x + 1, coords.y + 0)], mass * w10);
+	atomicAdd(mGrid[index(coords.x + 2, coords.y + 0)], mass * w20);
+
+	atomicAdd(mGrid[index(coords.x + 0, coords.y + 1)], mass * w01);
+	atomicAdd(mGrid[index(coords.x + 1, coords.y + 1)], mass * w11);
+	atomicAdd(mGrid[index(coords.x + 2, coords.y + 1)], mass * w21);
+
+	atomicAdd(mGrid[index(coords.x + 0, coords.y + 2)], mass * w02);
+	atomicAdd(mGrid[index(coords.x + 1, coords.y + 2)], mass * w12);
+	atomicAdd(mGrid[index(coords.x + 2, coords.y + 2)], mass * w22);
 }
