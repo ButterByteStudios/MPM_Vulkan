@@ -1,0 +1,86 @@
+#version 450
+
+// Tune for subgroup size
+#define BIN_SIZE 32
+
+struct Bin
+{
+	vec4[BIN_SIZE] colors;
+	mat2[BIN_SIZE] F;
+	vec2[BIN_SIZE] position;
+	float[BIN_SIZE] mass;
+	uint[BIN_SIZE] blockIndex;
+	uint particleCount;
+};
+
+layout(binding = 0) uniform ParameterUBO
+{
+	float k;
+	float mu;
+	float rho;
+	float dx;
+	float invDx;
+	uint dimensions;
+	uint blockDimensions;
+	float dt;
+} ubo;
+
+layout(std430, binding = 1) readonly buffer GridVelocitySSBOUnused1
+{
+	vec2 vGridUnused1[];
+};
+
+layout(std430, binding = 2) writeonly buffer GridVelocitySSBOUnused2
+{
+	vec2 vGridUnused2[];
+};
+
+layout(std430, binding = 3) writeonly buffer GridMassSSBOUnused
+{
+	float mGridUnused[];
+};
+
+layout(std430, binding = 4) readonly buffer BlockHistogramSSBOIn
+{
+	uint histogram[];
+};
+
+layout(std430, binding = 5) writeonly buffer BlockBinCountSSBOOut
+{
+    uint blockBinCount[];
+};
+
+layout(std430, binding = 6) buffer BinSSBOUnused1
+{
+	Bin binsUnused1[];
+};
+
+layout(std430, binding = 7) buffer BinSSBOUnused2
+{
+	Bin binsUnused2[];
+};
+
+layout(push_constant) uniform PushConstants {
+	uint stride;
+	uint halfStride;
+	uint start;
+} pc;
+
+uint index(uint x, uint y)
+{
+	return x + y * ubo.dimensions;
+}
+
+// This is for blocks, so maybe reduce thread size
+layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
+
+void main()
+{
+    uint x = gl_GlobalInvocationID.x;
+    uint y = gl_GlobalInvocationID.y;
+    uint i = index(x, y);
+
+    uint particleCount = histogram[i];
+    uint binCount = (particleCount + BIN_SIZE - 1) / BIN_SIZE;
+    blockBinCount[i] = binCount;
+}

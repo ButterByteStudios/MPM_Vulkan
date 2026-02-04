@@ -1,0 +1,104 @@
+#version 450
+
+// Tune for subgroup size
+#define BIN_SIZE 32
+
+struct Bin
+{
+	vec4[BIN_SIZE] colors;
+	mat2[BIN_SIZE] F;
+	vec2[BIN_SIZE] position;
+	float[BIN_SIZE] mass;
+	uint[BIN_SIZE] blockIndex;
+	uint particleCount;
+};
+
+layout(binding = 0) uniform ParameterUBO
+{
+	float k;
+	float mu;
+	float rho;
+	float dx;
+	float invDx;
+	uint dimensions;
+	uint blockDimensions;
+	float dt;
+} ubo;
+
+layout(std430, binding = 1) readonly buffer GridVelocitySSBOUnused1
+{
+	vec2 vGridUnused1[];
+};
+
+layout(std430, binding = 2) writeonly buffer GridVelocitySSBOUnused2
+{
+	vec2 vGridUnused2[];
+};
+
+layout(std430, binding = 3) writeonly buffer GridMassSSBOUnused
+{
+	float mGridUnused[];
+};
+
+layout(std430, binding = 4) buffer BlockHistogramSSBOUnused
+{
+	uint histogramUnused[];
+};
+
+layout(std430, binding = 5) readonly buffer BlockBinOffsetsSSBOIn
+{
+    uint binOffsets[];
+};
+
+layout(std430, binding = 6) readonly buffer BinSSBOIn
+{
+	Bin binsIn[];
+};
+
+layout(std430, binding = 7) writeonly buffer BinSSBOOut
+{
+	Bin binsOut[];
+};
+
+layout(push_constant) uniform PushConstants {
+	uint stride;
+	uint halfStride;
+	uint start;
+} pc;
+
+uint index(uint x, uint y)
+{
+	return x + y * ubo.dimensions;
+}
+
+uint blockIndex(uint x, uint y)
+{
+	return x + y * ubo.blockDimensions;
+}
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+	uint globalIndex = gl_GlobalInvocationID.x;
+	uint binIndex = globalIndex / BIN_SIZE;
+	uint pIndex = globalIndex - binIndex * BIN_SIZE;
+	Bin bin = binsIn[binIndex];
+
+	if (pIndex >= bin.particleCount)
+	{
+		return;
+	}
+
+	ivec2 blockCoords = ivec2(bin.position[pIndex]) / 4;
+	uint block = blockIndex(blockCoords.x, blockCoords.y);
+	uint baseBin = binOffsets[block];
+	uint binOffset = bin.particleCount / BIN_SIZE;
+	uint particleOffset = bin.blockIndex[pIndex] % BIN_SIZE;
+	binIndex = baseBin + binOffset;
+
+	binsOut[binIndex].colors[particleOffset] = bin.colors[pIndex];
+	binsOut[binIndex].F[particleOffset] = bin.F[pIndex];
+	binsOut[binIndex].position[particleOffset] = bin.position[pIndex];
+	binsOut[binIndex].mass[particleOffset] = bin.mass[pIndex];
+}

@@ -2,6 +2,7 @@
 #include <vector>
 #include <stdexcept>
 #include <set>
+#include <iostream>
 
 namespace ldl
 {

@@ -24,11 +24,12 @@
 #include <random>
 
 const uint32_t WIDTH = 800;
-const uint32_t HEIGHT = 600;
+const uint32_t HEIGHT = 800;
 const int MAX_FRAMES_IN_FLIGHT = 2;
-const int PARTICLE_COUNT = 1 << 19;
+const int PARTICLE_COUNT = 1 << 16;
 const int PARTICLE_KERNEL_SIZE = 256;
 const int GRID_KERNEL_SIZE = 32;
+const int BIN_SIZE = 32;
 
 const std::vector<const char*> validationLayers =
 {
@@ -52,14 +53,18 @@ struct UniformBufferObject
 	float k;
 	float mu;
 	float rho;
+	float dx;
+	float invDx;
+	uint32_t dimensions;
+	uint32_t blockDimensions;
+	float dt;
 };
 
 struct PushConstants
 {
-	float dt = 1.0f;
-	float dx = 1.0f;
-	float invDx = 1.0f;
-	int dimensions;
+	uint32_t stride;
+	uint32_t halfStride;
+	uint32_t start;
 };
 
 // WATCH FOR ALIGNMENT ISSUES. 
@@ -75,6 +80,18 @@ struct PushConstants
 // mat3: 16 per collumn (3 vec3s padded to vec4).
 // mat4: 16 per collumn.
 
+struct Bin
+{
+	glm::vec4 colors[BIN_SIZE]; // 16
+	glm::mat2 F[BIN_SIZE]; // 8 + 8
+	glm::vec2 position[BIN_SIZE]; // 8
+	float mass[BIN_SIZE]; // 4
+	uint32_t blockIndex[BIN_SIZE]; // 4
+	// Max alignment = 16, so pad till nearest multiple of 16
+	// Total size = 16 * 32 * 2 + 8 * 32 + 4 * 32 * 2 = 1024 + 256 + 256 = 1536 = 16 * 96
+	// Dont pad
+};
+
 struct Particle
 {
 	glm::vec4 color; // 16
@@ -83,7 +100,8 @@ struct Particle
 	float mass; // 4
 	float pad; // 4
 	// Max alignment = 16, so pad till nearest multiple of 16
-	// Total size 48 = 16 * 3
+	// Total size 16 * 2 + 8 + 4 = 44. 
+	// Pad with 4 to get 48 = 16 * 3
 
 	static VkVertexInputBindingDescription getBindingDescription()
 	{
@@ -152,7 +170,7 @@ private:
 	GLFWwindow* window;
 	VkInstance instance;
 	VkDebugUtilsMessengerEXT debugMessenger;
-	VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+	VkPhysicalDevice physicalDevice;
 	VkDevice device;
 
 	VkQueue computeQueue;
@@ -166,16 +184,22 @@ private:
 
 	VkSurfaceKHR surface;
 
-	VkRenderPass renderPass;
-	VkPipelineLayout pipelineLayout;
-	VkPipeline graphicsPipeline;
-
-	dsl::DescriptorAllocator descriptorAllocator;
+	dsl::DescriptorAllocator computeDescriptorAllocator;
+	dsl::DescriptorAllocator graphicsDescriptorAllocator;
 	ldl::DeviceBuilder deviceBuilder;
+
+	VkRenderPass renderPass;
+
+	std::vector<VkDescriptorSet> graphicsDescriptorSets;
+	VkDescriptorSetLayout graphicsDescriptorSetLayout;
+	VkPipelineLayout graphicsPipelineLayout;
+
+	VkPipeline graphicsPipeline;
 	
 	std::vector<VkDescriptorSet> computeDescriptorSets;
 	VkDescriptorSetLayout computeDescriptorSetLayout;
 	VkPipelineLayout computePipelineLayout;
+
 
 	VkPipeline gridComputePipeline;
 	VkPipeline g2p2gComputePipeline;
@@ -216,16 +240,19 @@ private:
 	VkBuffer mBuffer;
 	VkDeviceMemory mBufferMemory;
 
+	VkBuffer histogramBuffer;
+	VkDeviceMemory histogramBufferMemory;
+
 	std::vector<VkBuffer> uniformBuffers;
 	std::vector<VkDeviceMemory> uniformBuffersMemory;
 	std::vector<void*> uniformBuffersMapped;
 
-	int dimensions = 1 << 6;
+	uint32_t dimensions = 1 << 6;
 	float mass = 1.0f;
-	float E = 100000;
-	float v = 0.45;
+	float E = 10000;
+	float v = 0.49;
 	float rho = 100;
-	float dx = 2.0f;
+	float dx = 1.0f;
 	float dt = 0.01f;
 
 	void mainLoop()
@@ -259,11 +286,12 @@ private:
 		createSwapChain();
 		createSwapchainImageViews();
 		createRenderPass();
+		createUniformBuffers();
+		createGraphicsDescriptors();
 		createGraphicsPipeline();
 		createFrameBuffers();
 		createCommandPools();
 		createShaderStorageBuffers();
-		createUniformBuffers();
 		createComputeDescriptors();
 		createComputePipelines();
 		createCommandBuffers();
@@ -434,6 +462,11 @@ private:
 		ubo.k = E / (3.0f - 6.0f * v);
 		ubo.mu = E / (2.0f * (1.0f + v));
 		ubo.rho = rho;
+		ubo.dx = dx;
+		ubo.invDx = 1.0f / dx;
+		ubo.dimensions = dimensions;
+		ubo.blockDimensions = dimensions / 4;
+		ubo.dt = dt;
 
 		memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
 	}
@@ -725,6 +758,46 @@ private:
 		}
 	}
 
+	void createGraphicsDescriptors()
+	{
+		std::vector<dsl::DescriptorAllocator::PoolSizeRatio> sizes =
+		{
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1.0f}
+		};
+
+		graphicsDescriptorAllocator.initPool(device, MAX_FRAMES_IN_FLIGHT, sizes);
+
+		dsl::DescriptorLayoutBuilder builder{};
+		builder.addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+
+		builder.build(device, VK_SHADER_STAGE_VERTEX_BIT, graphicsDescriptorSetLayout);
+
+		std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, graphicsDescriptorSetLayout);
+
+		graphicsDescriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+		graphicsDescriptorAllocator.allocate(device, layouts.data(), (uint32_t)MAX_FRAMES_IN_FLIGHT, graphicsDescriptorSets.data());
+
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+		{
+			VkWriteDescriptorSet descriptorWrite{};
+
+			VkDescriptorBufferInfo uniformBufferInfo{};
+			uniformBufferInfo.buffer = uniformBuffers[i];
+			uniformBufferInfo.offset = 0;
+			uniformBufferInfo.range = sizeof(UniformBufferObject);
+
+			descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrite.dstSet = graphicsDescriptorSets[i];
+			descriptorWrite.dstBinding = 0;
+			descriptorWrite.dstArrayElement = 0;
+			descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+			descriptorWrite.descriptorCount = 1;
+			descriptorWrite.pBufferInfo = &uniformBufferInfo;
+
+			vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+		}
+	}
+
 	void createGraphicsPipeline()
 	{
 		auto vertShaderCode = readFile("../shaders/shader.vert.spv");
@@ -834,21 +907,14 @@ private:
 		colorBlending.blendConstants[2] = 0.0f;
 		colorBlending.blendConstants[3] = 0.0f;
 
-		VkPushConstantRange range{};
-		range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-		range.offset = 0;
-		range.size = sizeof(PushConstants);
-
 		VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
 		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-		pipelineLayoutInfo.setLayoutCount = 0;
-		pipelineLayoutInfo.pSetLayouts = nullptr;
-		pipelineLayoutInfo.pushConstantRangeCount = 1;
-		pipelineLayoutInfo.pPushConstantRanges = &range;
+		pipelineLayoutInfo.setLayoutCount = 1;
+		pipelineLayoutInfo.pSetLayouts = &graphicsDescriptorSetLayout;
 
-		if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS)
+		if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &graphicsPipelineLayout) != VK_SUCCESS)
 		{
-			throw std::runtime_error("Failed to create pipeline layout.");
+			throw std::runtime_error("Failed to create graphics pipeline layout.");
 		}
 
 		VkGraphicsPipelineCreateInfo pipelineInfo{};
@@ -865,7 +931,7 @@ private:
 		pipelineInfo.pDepthStencilState = nullptr;
 		pipelineInfo.pDynamicState = &dynamicState;
 
-		pipelineInfo.layout = pipelineLayout;
+		pipelineInfo.layout = graphicsPipelineLayout;
 		pipelineInfo.renderPass = renderPass;
 		pipelineInfo.subpass = 0;
 
@@ -879,6 +945,131 @@ private:
 
 		vkDestroyShaderModule(device, fragShaderModule, nullptr);
 		vkDestroyShaderModule(device, vertShaderModule, nullptr);
+	}
+
+	void createComputeDescriptors()
+	{
+		std::vector<dsl::DescriptorAllocator::PoolSizeRatio> sizes =
+		{
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1.0f / 7.0f },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 6.0f / 7.0f }
+		};
+
+		computeDescriptorAllocator.initPool(device, MAX_FRAMES_IN_FLIGHT * 7, sizes);
+
+		dsl::DescriptorLayoutBuilder builder{};
+		builder.addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+		builder.addBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+		builder.addBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+		builder.addBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+		builder.addBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+		builder.addBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+		builder.addBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+
+		builder.build(device, VK_SHADER_STAGE_COMPUTE_BIT, computeDescriptorSetLayout);
+
+		std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, computeDescriptorSetLayout);
+
+		computeDescriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+		computeDescriptorAllocator.allocate(device, layouts.data(), (uint32_t)MAX_FRAMES_IN_FLIGHT, computeDescriptorSets.data());
+
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+		{
+			std::array<VkWriteDescriptorSet, 7> descriptorWrites{};
+
+			VkDescriptorBufferInfo uniformBufferInfo{};
+			uniformBufferInfo.buffer = uniformBuffers[i];
+			uniformBufferInfo.offset = 0;
+			uniformBufferInfo.range = sizeof(UniformBufferObject);
+
+			descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[0].dstSet = computeDescriptorSets[i];
+			descriptorWrites[0].dstBinding = 0;
+			descriptorWrites[0].dstArrayElement = 0;
+			descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+			descriptorWrites[0].descriptorCount = 1;
+			descriptorWrites[0].pBufferInfo = &uniformBufferInfo;
+
+			VkDescriptorBufferInfo vBufferReadInfo{};
+			vBufferReadInfo.buffer = vBuffers[(i + MAX_FRAMES_IN_FLIGHT - 1) % MAX_FRAMES_IN_FLIGHT];
+			vBufferReadInfo.offset = 0;
+			vBufferReadInfo.range = sizeof(glm::vec2) * dimensions * dimensions;
+
+			descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[1].dstSet = computeDescriptorSets[i];
+			descriptorWrites[1].dstBinding = 1;
+			descriptorWrites[1].dstArrayElement = 0;
+			descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			descriptorWrites[1].descriptorCount = 1;
+			descriptorWrites[1].pBufferInfo = &vBufferReadInfo;
+
+			VkDescriptorBufferInfo vBufferWriteInfo{};
+			vBufferWriteInfo.buffer = vBuffers[i];
+			vBufferWriteInfo.offset = 0;
+			vBufferWriteInfo.range = sizeof(glm::vec2) * dimensions * dimensions;
+
+			descriptorWrites[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[2].dstSet = computeDescriptorSets[i];
+			descriptorWrites[2].dstBinding = 2;
+			descriptorWrites[2].dstArrayElement = 0;
+			descriptorWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			descriptorWrites[2].descriptorCount = 1;
+			descriptorWrites[2].pBufferInfo = &vBufferWriteInfo;
+
+			VkDescriptorBufferInfo mBufferWriteInfo{};
+			mBufferWriteInfo.buffer = mBuffer;
+			mBufferWriteInfo.offset = 0;
+			mBufferWriteInfo.range = sizeof(float) * dimensions * dimensions;
+
+			descriptorWrites[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[3].dstSet = computeDescriptorSets[i];
+			descriptorWrites[3].dstBinding = 3;
+			descriptorWrites[3].dstArrayElement = 0;
+			descriptorWrites[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			descriptorWrites[3].descriptorCount = 1;
+			descriptorWrites[3].pBufferInfo = &mBufferWriteInfo;
+
+			VkDescriptorBufferInfo histogramBufferWriteInfo{};
+			histogramBufferWriteInfo.buffer = histogramBuffer;
+			histogramBufferWriteInfo.offset = 0;
+			histogramBufferWriteInfo.range = sizeof(uint32_t) * dimensions * dimensions;
+
+			descriptorWrites[4].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[4].dstSet = computeDescriptorSets[i];
+			descriptorWrites[4].dstBinding = 4;
+			descriptorWrites[4].dstArrayElement = 0;
+			descriptorWrites[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			descriptorWrites[4].descriptorCount = 1;
+			descriptorWrites[4].pBufferInfo = &histogramBufferWriteInfo;
+
+			VkDescriptorBufferInfo particleBufferReadInfo{};
+			particleBufferReadInfo.buffer = particleBuffers[(i + MAX_FRAMES_IN_FLIGHT - 1) % MAX_FRAMES_IN_FLIGHT];
+			particleBufferReadInfo.offset = 0;
+			particleBufferReadInfo.range = sizeof(Particle) * PARTICLE_COUNT;
+
+			descriptorWrites[5].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[5].dstSet = computeDescriptorSets[i];
+			descriptorWrites[5].dstBinding = 5;
+			descriptorWrites[5].dstArrayElement = 0;
+			descriptorWrites[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			descriptorWrites[5].descriptorCount = 1;
+			descriptorWrites[5].pBufferInfo = &particleBufferReadInfo;
+
+			VkDescriptorBufferInfo particleBufferWriteInfo{};
+			particleBufferWriteInfo.buffer = particleBuffers[i];
+			particleBufferWriteInfo.offset = 0;
+			particleBufferWriteInfo.range = sizeof(Particle) * PARTICLE_COUNT;
+
+			descriptorWrites[6].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[6].dstSet = computeDescriptorSets[i];
+			descriptorWrites[6].dstBinding = 6;
+			descriptorWrites[6].dstArrayElement = 0;
+			descriptorWrites[6].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			descriptorWrites[6].descriptorCount = 1;
+			descriptorWrites[6].pBufferInfo = &particleBufferWriteInfo;
+
+			vkUpdateDescriptorSets(device, descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
+		}
 	}
 
 	void createComputePipelines()
@@ -1054,6 +1245,7 @@ private:
 
 		vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
+		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipelineLayout, 0, 1, &graphicsDescriptorSets[currentFrame], 0, nullptr);
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
 
 		VkViewport viewPort{};
@@ -1074,14 +1266,6 @@ private:
 
 		VkDeviceSize offsets[] = { 0 };
 		vkCmdBindVertexBuffers(commandBuffer, 0, 1, &particleBuffers[currentFrame], offsets);
-
-		PushConstants constants{};
-		constants.dt = dt;
-		constants.dx = dx;
-		constants.invDx = 1.0f / dx;
-		constants.dimensions = dimensions;
-
-		vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants), &constants);
 
 		vkCmdDraw(commandBuffer, PARTICLE_COUNT, 1, 0, 0);
 
@@ -1105,13 +1289,6 @@ private:
 			throw std::runtime_error("Failed to begin recording compute command buffer.");
 		}
 
-		PushConstants constants{};
-		constants.dt = dt;
-		constants.dx = dx;
-		constants.invDx = 1.0f / dx;
-		constants.dimensions = dimensions;
-
-		vkCmdPushConstants(commandBuffer, computePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstants), &constants);
 		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &computeDescriptorSets[currentFrame], 0, nullptr);
 
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, g2p2gComputePipeline);
@@ -1238,9 +1415,9 @@ private:
 		std::vector<Particle> particles(PARTICLE_COUNT);
 		for (auto& particle : particles)
 		{
-			float r = 0.25f * sqrt(rndDist(rndEngine));
+			float r = 0.2f * sqrt(rndDist(rndEngine));
 			float theta = rndDist(rndEngine) * 2 * 3.14159265358979323846;
-			float x = r * cos(theta) * HEIGHT / WIDTH;
+			float x = r * cos(theta);
 			float y = r * sin(theta);
 
 			x = (x + 1.0f) / 2.0f * dimensions * dx;
@@ -1306,118 +1483,21 @@ private:
 
 		vkDestroyBuffer(device, stagingBuffer, nullptr);
 		vkFreeMemory(device, stagingBufferMemory, nullptr);
-	}
 
-	void createComputeDescriptors()
-	{
-		std::vector<dsl::DescriptorAllocator::PoolSizeRatio> sizes =
-		{
-			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1.0f/6.0f },
-			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 5.0f/6.0f }
-		};
 
-		descriptorAllocator.initPool(device, 20, sizes);
+		std::vector<uint32_t> histogram(dimensions * dimensions);
+		bufferSize = sizeof(uint32_t) * dimensions * dimensions;
+		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
 
-		dsl::DescriptorLayoutBuilder builder{};
-		builder.addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-		builder.addBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-		builder.addBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-		builder.addBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-		builder.addBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-		builder.addBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+		vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
+		memcpy(data, histogram.data(), (size_t)bufferSize);
+		vkUnmapMemory(device, stagingBufferMemory);
 
-		builder.build(device, VK_SHADER_STAGE_COMPUTE_BIT, computeDescriptorSetLayout);
+		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, histogramBuffer, histogramBufferMemory);
+		copyBuffer(stagingBuffer, histogramBuffer, bufferSize);
 
-		std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, computeDescriptorSetLayout);
-
-		computeDescriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
-		descriptorAllocator.allocate(device, layouts.data(), (uint32_t)MAX_FRAMES_IN_FLIGHT, computeDescriptorSets.data());
-
-		// Pingpong the grid image views
-		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
-		{
-			std::array<VkWriteDescriptorSet, 6> descriptorWrites{};
-
-			VkDescriptorBufferInfo uniformBufferInfo{};
-			uniformBufferInfo.buffer = uniformBuffers[i];
-			uniformBufferInfo.offset = 0;
-			uniformBufferInfo.range = sizeof(UniformBufferObject);
-
-			descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			descriptorWrites[0].dstSet = computeDescriptorSets[i];
-			descriptorWrites[0].dstBinding = 0;
-			descriptorWrites[0].dstArrayElement = 0;
-			descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-			descriptorWrites[0].descriptorCount = 1;
-			descriptorWrites[0].pBufferInfo = &uniformBufferInfo;
-
-			VkDescriptorBufferInfo vBufferReadInfo{};
-			vBufferReadInfo.buffer = vBuffers[(i + MAX_FRAMES_IN_FLIGHT - 1) % MAX_FRAMES_IN_FLIGHT];
-			vBufferReadInfo.offset = 0;
-			vBufferReadInfo.range = sizeof(glm::vec2) * dimensions * dimensions;
-
-			descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			descriptorWrites[1].dstSet = computeDescriptorSets[i];
-			descriptorWrites[1].dstBinding = 1;
-			descriptorWrites[1].dstArrayElement = 0;
-			descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-			descriptorWrites[1].descriptorCount = 1;
-			descriptorWrites[1].pBufferInfo = &vBufferReadInfo;
-
-			VkDescriptorBufferInfo vBufferWriteInfo{};
-			vBufferWriteInfo.buffer = vBuffers[i];
-			vBufferWriteInfo.offset = 0;
-			vBufferWriteInfo.range = sizeof(glm::vec2) * dimensions * dimensions;
-
-			descriptorWrites[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			descriptorWrites[2].dstSet = computeDescriptorSets[i];
-			descriptorWrites[2].dstBinding = 2;
-			descriptorWrites[2].dstArrayElement = 0;
-			descriptorWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-			descriptorWrites[2].descriptorCount = 1;
-			descriptorWrites[2].pBufferInfo = &vBufferWriteInfo;
-
-			VkDescriptorBufferInfo mBufferWriteInfo{};
-			mBufferWriteInfo.buffer = mBuffer;
-			mBufferWriteInfo.offset = 0;
-			mBufferWriteInfo.range = sizeof(float) * dimensions * dimensions;
-
-			descriptorWrites[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			descriptorWrites[3].dstSet = computeDescriptorSets[i];
-			descriptorWrites[3].dstBinding = 3;
-			descriptorWrites[3].dstArrayElement = 0;
-			descriptorWrites[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-			descriptorWrites[3].descriptorCount = 1;
-			descriptorWrites[3].pBufferInfo = &mBufferWriteInfo;
-
-			VkDescriptorBufferInfo particleBufferReadInfo{};
-			particleBufferReadInfo.buffer = particleBuffers[(i + MAX_FRAMES_IN_FLIGHT - 1) % MAX_FRAMES_IN_FLIGHT];
-			particleBufferReadInfo.offset = 0;
-			particleBufferReadInfo.range = sizeof(Particle) * PARTICLE_COUNT;
-
-			descriptorWrites[4].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			descriptorWrites[4].dstSet = computeDescriptorSets[i];
-			descriptorWrites[4].dstBinding = 4;
-			descriptorWrites[4].dstArrayElement = 0;
-			descriptorWrites[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-			descriptorWrites[4].descriptorCount = 1;
-			descriptorWrites[4].pBufferInfo = &particleBufferReadInfo;
-
-			VkDescriptorBufferInfo particleBufferWriteInfo{};
-			particleBufferWriteInfo.buffer = particleBuffers[i];
-			particleBufferWriteInfo.offset = 0;
-			particleBufferWriteInfo.range = sizeof(Particle) * PARTICLE_COUNT;
-
-			descriptorWrites[5].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			descriptorWrites[5].dstSet = computeDescriptorSets[i];
-			descriptorWrites[5].dstBinding = 5;
-			descriptorWrites[5].dstArrayElement = 0;
-			descriptorWrites[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-			descriptorWrites[5].descriptorCount = 1;
-			descriptorWrites[5].pBufferInfo = &particleBufferWriteInfo;
-
-			vkUpdateDescriptorSets(device, descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
-		}
+		vkDestroyBuffer(device, stagingBuffer, nullptr);
+		vkFreeMemory(device, stagingBufferMemory, nullptr);
 	}
 
 	void createUniformBuffers()
@@ -1779,7 +1859,7 @@ private:
 		cleanupSwapchain();
 
 		vkDestroyPipeline(device, graphicsPipeline, nullptr);
-		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+		vkDestroyPipelineLayout(device, graphicsPipelineLayout, nullptr);
 
 		vkDestroyPipeline(device, g2p2gComputePipeline, nullptr);
 		vkDestroyPipeline(device, gridComputePipeline, nullptr);
@@ -1793,8 +1873,10 @@ private:
 			vkFreeMemory(device, uniformBuffersMemory[i], nullptr);
 		}
 
-		descriptorAllocator.destroyPool(device);
+		graphicsDescriptorAllocator.destroyPool(device);
+		computeDescriptorAllocator.destroyPool(device);
 
+		vkDestroyDescriptorSetLayout(device, graphicsDescriptorSetLayout, nullptr);
 		vkDestroyDescriptorSetLayout(device, computeDescriptorSetLayout, nullptr);
 
 		for (size_t i = 0; i < 2; i++)
@@ -1805,6 +1887,9 @@ private:
 
 		vkDestroyBuffer(device, mBuffer, nullptr);
 		vkFreeMemory(device, mBufferMemory, nullptr);
+
+		vkDestroyBuffer(device, histogramBuffer, nullptr);
+		vkFreeMemory(device, histogramBufferMemory, nullptr);
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{

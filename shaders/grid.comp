@@ -1,19 +1,29 @@
 #version 450
 
+// Tune for subgroup size
+#define BIN_SIZE 32
+
+struct Bin
+{
+	vec4[BIN_SIZE] colors;
+	mat2[BIN_SIZE] F;
+	vec2[BIN_SIZE] position;
+	float[BIN_SIZE] mass;
+	uint[BIN_SIZE] blockIndex;
+	uint particleCount;
+};
+
 layout(binding = 0) uniform ParameterUBO
 {
 	float k;
 	float mu;
 	float rho;
+	float dx;
+	float invDx;
+	uint dimensions;
+	uint blockDimensions;
+	float dt;
 } ubo;
-
-struct Particle
-{
-	vec4 color;
-	vec2 position;
-	mat2 F;
-	float mass;
-};
 
 layout(std430, binding = 1) writeonly buffer GridVelocitySSBOClear
 {
@@ -30,26 +40,30 @@ layout(std430, binding = 3) buffer GridMassSSBOIn
 	float mGrid[];
 };
 
-layout (std430, binding = 4) readonly buffer ParticleSSBOIn
+layout(std430, binding = 4) writeonly buffer BlockHistogramSSBOClear
 {
-	Particle particlesIn[];
+	uint histogram[];
 };
 
-layout(std430, binding = 5) writeonly buffer ParticleSSBOOut
+layout (std430, binding = 5) readonly buffer BinSSBOUnused1
 {
-	Particle particlesOut[];
+	Bin binsUnused1[];
+};
+
+layout(std430, binding = 6) writeonly buffer BinSSBOUnused2
+{
+	Bin binsUnused2[];
 };
 
 layout(push_constant) uniform PushConstants {
-	float dt;
-	float dx;
-	float invDx;
-	int dimensions;
+	uint stride;
+	uint halfStride;
+	uint start;
 } pc;
 
 uint index(uint x, uint y)
 {
-	return x + y * pc.dimensions;
+	return x + y * ubo.dimensions;
 }
 
 layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
@@ -67,19 +81,22 @@ void main()
 	// Reset mass for next steps scatter
 	mGrid[i] = 0;
 	vClearGrid[i] = vec2(0);
+	histogram[i] = 0;
 
-	bool left = x <= 1;
-	bool right = x >= pc.dimensions - 2;
-	bool down = y <= 1;
-	bool up = y >= pc.dimensions - 2;
+	bool left = x <= 2;
+	bool right = x >= ubo.dimensions - 2;
+	bool down = y <= 2;
+	bool up = y >= ubo.dimensions - 2;
 
 	if (m == 0 || left || right || down || up)
 	{
-		// Simple no slip boundary
 		vGrid[i] = vec2(0);
 		return;
 	}
+	
+	// Put in pushconstants maybe
+	float cflSpeed = ubo.dx / ubo.dt;
 
 	// Convert momentum to velocity
-	vGrid[i] = v / m + vec2(0, -9.81 * pc.dt);
+	vGrid[i] = clamp((v / m) + vec2(0, -9.81 * ubo.dt), -cflSpeed, cflSpeed);
 }

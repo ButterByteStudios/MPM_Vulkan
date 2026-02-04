@@ -1,14 +1,18 @@
 #version 450
 
-#extension GL_KHR_shader_subgroup_arithmatic: enable
 #extension GL_EXT_shader_atomic_float: enable
 
-struct Particle
+// Tune for subgroup size
+#define BIN_SIZE 32
+
+struct Bin
 {
-	vec4 color;
-	mat2 F;
-	vec2 position;
-	float mass;
+	vec4[BIN_SIZE] colors;
+	mat2[BIN_SIZE] F;
+	vec2[BIN_SIZE] position;
+	float[BIN_SIZE] mass;
+	uint[BIN_SIZE] blockIndex;
+	uint particleCount;
 };
 
 layout(binding = 0) uniform ParameterUBO
@@ -16,6 +20,11 @@ layout(binding = 0) uniform ParameterUBO
 	float k;
 	float mu;
 	float rho;
+	float dx;
+	float invDx;
+	uint dimensions;
+	uint blockDimensions;
+	float dt;
 } ubo;
 
 layout(std430, binding = 1) readonly buffer GridVelocitySSBOIn
@@ -33,21 +42,30 @@ layout(std430, binding = 3) writeonly buffer GridMassSSBOOut
 	float mGrid[];
 };
 
-layout (std430, binding = 4) buffer ParticleSSBOIn
+layout(std430, binding = 4) writeonly buffer BlockHistogramSSBOOut
 {
-	Particle particlesIn[];
+	uint histogram[];
 };
 
-layout(std430, binding = 5) buffer ParticleSSBOOut
+layout(std430, binding = 5) buffer BlockBinCountSSBOUnused
 {
-	Particle particlesOut[];
+    uint blockBinCountUnused[];
+};
+
+layout(std430, binding = 6) buffer BinSSBOInOut
+{
+	Bin bins[];
+};
+
+layout(std430, binding = 7) buffer BinSSBOUnused
+{
+	Bin binsUnused[];
 };
 
 layout(push_constant) uniform PushConstants {
-	float dt;
-	float dx;
-	float invDx;
-	int dimensions;
+	uint stride;
+	uint halfStride;
+	uint start;
 } pc;
 
 float qw0(float x)
@@ -68,36 +86,47 @@ float qw2(float x)
 	return 0.5 * xp * xp;
 }
 
-int index(int x, int y)
+uint index(uint x, uint y)
 {
-	return x + y * pc.dimensions;
+	return x + y * ubo.dimensions;
+}
+
+uint blockIndex(uint x, uint y)
+{
+	return x + y * ubo.blockDimensions;
 }
 
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 void main()
 {
-	uint pIndex = gl_GlobalInvocationID.x;
+	uint globalIndex = gl_GlobalInvocationID.x;
+	uint binIndex = globalIndex / BIN_SIZE;
+	uint pIndex = globalIndex - binIndex * BIN_SIZE;
+	Bin bin = bins[binIndex];
 
-	Particle particleIn = particlesIn[pIndex];
+	if (pIndex >= bin.particleCount)
+	{
+		return;
+	}
 
-	vec2 position = particleIn.position;
-	vec2 cellPosition = position * pc.invDx;
+	vec2 position = bin.position[pIndex];
+	vec2 cellPosition = position * ubo.invDx;
 	ivec2 coords = ivec2(floor(cellPosition - 0.5));
 	
 	vec2 d = cellPosition - coords;
 	
-	vec2 d00 = vec2(-d.x + 0, -d.y + 0) * pc.dx;
-	vec2 d10 = vec2(-d.x + 1, -d.y + 0) * pc.dx;
-	vec2 d20 = vec2(-d.x + 2, -d.y + 0) * pc.dx;
+	vec2 d00 = vec2(-d.x + 0, -d.y + 0) * ubo.dx;
+	vec2 d10 = vec2(-d.x + 1, -d.y + 0) * ubo.dx;
+	vec2 d20 = vec2(-d.x + 2, -d.y + 0) * ubo.dx;
 
-	vec2 d01 = vec2(-d.x + 0, -d.y + 1) * pc.dx;
-	vec2 d11 = vec2(-d.x + 1, -d.y + 1) * pc.dx;
-	vec2 d21 = vec2(-d.x + 2, -d.y + 1) * pc.dx;
+	vec2 d01 = vec2(-d.x + 0, -d.y + 1) * ubo.dx;
+	vec2 d11 = vec2(-d.x + 1, -d.y + 1) * ubo.dx;
+	vec2 d21 = vec2(-d.x + 2, -d.y + 1) * ubo.dx;
 
-	vec2 d02 = vec2(-d.x + 0, -d.y + 2) * pc.dx;
-	vec2 d12 = vec2(-d.x + 1, -d.y + 2) * pc.dx;
-	vec2 d22 = vec2(-d.x + 2, -d.y + 2) * pc.dx;
+	vec2 d02 = vec2(-d.x + 0, -d.y + 2) * ubo.dx;
+	vec2 d12 = vec2(-d.x + 1, -d.y + 2) * ubo.dx;
+	vec2 d22 = vec2(-d.x + 2, -d.y + 2) * ubo.dx;
 	
 
 	float uw0 = qw0(d.x);
@@ -121,65 +150,65 @@ void main()
 	float w12 = uw1 * vw2;
 	float w22 = uw2 * vw2;
 
-	vec2 v00 = vRGrid[index(coords.x + 0, coords.y + 0)];
-	vec2 v10 = vRGrid[index(coords.x + 1, coords.y + 0)];
-	vec2 v20 = vRGrid[index(coords.x + 2, coords.y + 0)];
+	vec2 v00 = w00 * vRGrid[index(coords.x + 0, coords.y + 0)];
+	vec2 v10 = w10 * vRGrid[index(coords.x + 1, coords.y + 0)];
+	vec2 v20 = w20 * vRGrid[index(coords.x + 2, coords.y + 0)];
 
-	vec2 v01 = vRGrid[index(coords.x + 0, coords.y + 1)];
-	vec2 v11 = vRGrid[index(coords.x + 1, coords.y + 1)];
-	vec2 v21 = vRGrid[index(coords.x + 2, coords.y + 1)];
+	vec2 v01 = w01 * vRGrid[index(coords.x + 0, coords.y + 1)];
+	vec2 v11 = w11 * vRGrid[index(coords.x + 1, coords.y + 1)];
+	vec2 v21 = w21 * vRGrid[index(coords.x + 2, coords.y + 1)];
 
-	vec2 v02 = vRGrid[index(coords.x + 0, coords.y + 2)];
-	vec2 v12 = vRGrid[index(coords.x + 1, coords.y + 2)];
-	vec2 v22 = vRGrid[index(coords.x + 2, coords.y + 2)];
+	vec2 v02 = w02 * vRGrid[index(coords.x + 0, coords.y + 2)];
+	vec2 v12 = w12 * vRGrid[index(coords.x + 1, coords.y + 2)];
+	vec2 v22 = w22 * vRGrid[index(coords.x + 2, coords.y + 2)];
 
-	vec2 v = v00 * w00 + v10 * w10 + v20 * w20 + 
-			v01 * w01 + v11 * w11 + v21 * w21 + 
-			v02 * w02 + v12 * w12 + v22 * w22;
+	vec2 v = v00 + v10 + v20 + 
+			v01 + v11 + v21 + 
+			v02 + v12 + v22;
 
 	mat2 B = mat2(0);
-	B += w00 * outerProduct(v00, d00);
-	B += w10 * outerProduct(v10, d10);
-	B += w20 * outerProduct(v20, d20);
+	B += outerProduct(v00, d00);
+	B += outerProduct(v10, d10);
+	B += outerProduct(v20, d20);
 
-	B += w01 * outerProduct(v01, d01);
-	B += w11 * outerProduct(v11, d11);
-	B += w21 * outerProduct(v21, d21);
+	B += outerProduct(v01, d01);
+	B += outerProduct(v11, d11);
+	B += outerProduct(v21, d21);
 
-	B += w02 * outerProduct(v02, d02);
-	B += w12 * outerProduct(v12, d12);
-	B += w22 * outerProduct(v22, d22);
+	B += outerProduct(v02, d02);
+	B += outerProduct(v12, d12);
+	B += outerProduct(v22, d22);
 
-	float inv_D = 4.0 / (pc.dx * pc.dx);
+	float inv_D = 4.0 * ubo.invDx * ubo.invDx;
 	mat2 C = B * inv_D;
 
-	mat2 F = (mat2(1.0) + C * pc.dt) * particleIn.F;
+	mat2 F = (mat2(1.0) + C * ubo.dt) * bin.F[pIndex];
 
 	float J = determinant(F);
 
-	particlesOut[pIndex].F = F;
+	float mass = bin.mass[pIndex];
 
-	float mass = particleIn.mass;
+	position = clamp((position + ubo.dt * v) * ubo.invDx, vec2(1), vec2(ubo.dimensions - 1)) * ubo.dx;
 
-	position = clamp((position + pc.dt * v) * pc.invDx, vec2(1), vec2(pc.dimensions - 2)) * pc.dx;
-	particlesOut[pIndex].position = position;
+	bins[binIndex].F[pIndex] = F;
+	bins[binIndex].position[pIndex] = position;
 
-	cellPosition = position * pc.invDx;
+	cellPosition = position * ubo.invDx;
 	coords = ivec2(floor(cellPosition - 0.5));
 
 	d = cellPosition - coords;
 
-	d00 = vec2(-d.x + 0, -d.y + 0) * pc.dx;
-	d10 = vec2(-d.x + 1, -d.y + 0) * pc.dx;
-	d20 = vec2(-d.x + 2, -d.y + 0) * pc.dx;
+	d00 = vec2(-d.x + 0, -d.y + 0) * ubo.dx;
+	d10 = vec2(-d.x + 1, -d.y + 0) * ubo.dx;
+	d20 = vec2(-d.x + 2, -d.y + 0) * ubo.dx;
 
-	d01 = vec2(-d.x + 0, -d.y + 1) * pc.dx;
-	d11 = vec2(-d.x + 1, -d.y + 1) * pc.dx;
-	d21 = vec2(-d.x + 2, -d.y + 1) * pc.dx;
+	d01 = vec2(-d.x + 0, -d.y + 1) * ubo.dx;
+	d11 = vec2(-d.x + 1, -d.y + 1) * ubo.dx;
+	d21 = vec2(-d.x + 2, -d.y + 1) * ubo.dx;
 	
-	d02 = vec2(-d.x + 0, -d.y + 2) * pc.dx;
-	d12 = vec2(-d.x + 1, -d.y + 2) * pc.dx;
-	d22 = vec2(-d.x + 2, -d.y + 2) * pc.dx;
+	d02 = vec2(-d.x + 0, -d.y + 2) * ubo.dx;
+	d12 = vec2(-d.x + 1, -d.y + 2) * ubo.dx;
+	d22 = vec2(-d.x + 2, -d.y + 2) * ubo.dx;
 
 	uw0 = qw0(d.x);
 	uw1 = qw1(d.x);
@@ -216,7 +245,7 @@ void main()
 	float volume = mass / ubo.rho;
 	float currentVolume = volume * J;
 	
-	mat2 stress = pc.dt * -volume * cauchy * inv_D;
+	mat2 stress = ubo.dt * -volume * cauchy * inv_D;
 	mat2 affine = stress + mass * C;
 
 	vec2 vm = v * mass;
@@ -266,4 +295,8 @@ void main()
 	atomicAdd(mGrid[index(coords.x + 0, coords.y + 2)], mass * w02);
 	atomicAdd(mGrid[index(coords.x + 1, coords.y + 2)], mass * w12);
 	atomicAdd(mGrid[index(coords.x + 2, coords.y + 2)], mass * w22);
+
+	ivec2 blockCoords = coords / 4;
+	uint blockIndex = atomicAdd(histogram[blockIndex(blockCoords.x, blockCoords.y)], 1);
+	bins[binIndex].blockIndex[pIndex] = blockIndex;
 }
