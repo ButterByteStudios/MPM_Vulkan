@@ -3,16 +3,6 @@
 // Tune for subgroup size
 #define BIN_SIZE 32
 
-struct Bin
-{
-	vec4[BIN_SIZE] colors;
-	mat2[BIN_SIZE] F;
-	vec2[BIN_SIZE] position;
-	float[BIN_SIZE] mass;
-	uint[BIN_SIZE] blockIndex;
-	uint particleCount;
-};
-
 layout(binding = 0) uniform ParameterUBO
 {
 	float k;
@@ -25,50 +15,24 @@ layout(binding = 0) uniform ParameterUBO
 	float dt;
 } ubo;
 
-layout(std430, binding = 1) readonly buffer GridVelocitySSBOUnused1
+layout(std430, binding = 5) readonly buffer BlockHistogramSSBOIn
 {
-	vec2 vGridUnused1[];
+	uint histogramIn[];
 };
 
-layout(std430, binding = 2) writeonly buffer GridVelocitySSBOUnused2
+layout(std430, binding = 7) writeonly buffer BlockBinCountSSBONew
 {
-	vec2 vGridUnused2[];
+    uint blockBinCountNew[];
 };
 
-layout(std430, binding = 3) writeonly buffer GridMassSSBOUnused
+layout(std430, binding = 8) writeonly buffer BlockParticleCountSSBOOut
 {
-	float mGridUnused[];
+    uint blockParticleCount[];
 };
 
-layout(std430, binding = 4) readonly buffer BlockHistogramSSBOIn
+uint blockIndex(uint x, uint y)
 {
-	uint histogram[];
-};
-
-layout(std430, binding = 5) writeonly buffer BlockBinCountSSBOOut
-{
-    uint blockBinCount[];
-};
-
-layout(std430, binding = 6) buffer BinSSBOUnused1
-{
-	Bin binsUnused1[];
-};
-
-layout(std430, binding = 7) buffer BinSSBOUnused2
-{
-	Bin binsUnused2[];
-};
-
-layout(push_constant) uniform PushConstants {
-	uint stride;
-	uint halfStride;
-	uint start;
-} pc;
-
-uint index(uint x, uint y)
-{
-	return x + y * ubo.dimensions;
+	return x + y * ubo.blockDimensions;
 }
 
 // This is for blocks, so maybe reduce thread size
@@ -78,9 +42,10 @@ void main()
 {
     uint x = gl_GlobalInvocationID.x;
     uint y = gl_GlobalInvocationID.y;
-    uint i = index(x, y);
+    uint i = blockIndex(x, y);
 
-    uint particleCount = histogram[i];
+    uint particleCount = histogramIn[i];
     uint binCount = (particleCount + BIN_SIZE - 1) / BIN_SIZE;
-    blockBinCount[i] = binCount;
+    blockBinCountNew[i] = binCount;
+	blockParticleCount[i] = particleCount;
 }

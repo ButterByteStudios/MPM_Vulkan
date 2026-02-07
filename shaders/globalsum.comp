@@ -1,0 +1,50 @@
+#version 450
+
+// Tune for subgroup size
+#define BIN_SIZE 32
+
+layout(std430, binding = 7) buffer BlockLocalBinSumSSBONew
+{
+    uint blockLocalBinSumNew[];
+};
+
+layout(std430, binding = 8) buffer BlockLocalParticleSumSSBOInOut
+{
+    uint blockLocalParticleSum[];
+};
+
+layout(std430, binding = 9) readonly buffer BlockBinSumSSBOIn
+{
+	uint blockBinSum[];
+};
+
+layout(std430, binding = 10) readonly buffer BlockParticleSumSSBOIn
+{
+	uint blockParticleSum[];
+};
+
+// Dispatch as many workgroups as the localsum
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+shared uint binSum;
+shared uint particleSum;
+
+void main()
+{
+	uint globalId = gl_GlobalInvocationID.x;
+	uint localId = gl_LocalInvocationID.x;
+	uint block = gl_WorkGroupID.x;
+
+	uint base = block * 256;
+
+	if (localId == 0)
+	{
+		binSum = blockBinSum[block];
+		blockBinSum[block];
+		particleSum = blockParticleSum[block];
+	}
+	barrier();
+
+	blockLocalBinSumNew[base + localId] += binSum;
+	blockLocalParticleSum[base + localId] += particleSum;
+}

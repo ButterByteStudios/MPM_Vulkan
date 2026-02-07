@@ -2,6 +2,7 @@
 
 #include <glfw/glfw3.h>
 #include <glm/glm.hpp>
+#include <glm/gtc/integer.hpp>
 #include <vulkan/vulkan.h>
 
 #include <descriptorAllocator.h>
@@ -26,9 +27,11 @@
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 800;
 const int MAX_FRAMES_IN_FLIGHT = 2;
-const int PARTICLE_COUNT = 1 << 16;
+const int PARTICLE_COUNT = 1 << 10;
 const int PARTICLE_KERNEL_SIZE = 256;
 const int GRID_KERNEL_SIZE = 32;
+const int BLOCK_KERNEL_SIZE = 32;
+const int SUM_KERNEL_SIZE = 256;
 const int BIN_SIZE = 32;
 
 const std::vector<const char*> validationLayers =
@@ -39,7 +42,7 @@ const std::vector<const char*> validationLayers =
 const std::vector<const char*> deviceExtensions =
 {
 	VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-	VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME
+	VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME,
 };
 
 #ifdef NDEBUG
@@ -60,13 +63,6 @@ struct UniformBufferObject
 	float dt;
 };
 
-struct PushConstants
-{
-	uint32_t stride;
-	uint32_t halfStride;
-	uint32_t start;
-};
-
 // WATCH FOR ALIGNMENT ISSUES. 
 // Structs on the gpu need to be a multiple of an alignment value. 
 // In std140 this is automatically a multiple of 16.
@@ -80,28 +76,27 @@ struct PushConstants
 // mat3: 16 per collumn (3 vec3s padded to vec4).
 // mat4: 16 per collumn.
 
-struct Bin
+struct alignas(8) Bin
 {
-	glm::vec4 colors[BIN_SIZE]; // 16
-	glm::mat2 F[BIN_SIZE]; // 8 + 8
-	glm::vec2 position[BIN_SIZE]; // 8
-	float mass[BIN_SIZE]; // 4
-	uint32_t blockIndex[BIN_SIZE]; // 4
-	// Max alignment = 16, so pad till nearest multiple of 16
-	// Total size = 16 * 32 * 2 + 8 * 32 + 4 * 32 * 2 = 1024 + 256 + 256 = 1536 = 16 * 96
-	// Dont pad
+	glm::mat2 F[BIN_SIZE]; // (8 + 8) * 32 = 512
+	glm::vec2 position[BIN_SIZE]; // 8 * 32 = 256
+	float mass[BIN_SIZE]; // 4 * 32 = 128
+	uint32_t blockParticleIndex[BIN_SIZE]; // 4 * 32 = 128
+	uint32_t block; // 4
+	uint32_t pad; // 4
+	// Max alignment = 8, so pad till nearest multiple of 8
+	// Total size = 512 + 256 + 128 + 128 + 4 + 4 = 1032 = 8 * 129
 };
+static_assert(sizeof(Bin) == 1032);
 
 struct Particle
 {
 	glm::vec4 color; // 16
-	glm::mat2 F; // 8 + 8
 	glm::vec2 position; // 8
-	float mass; // 4
-	float pad; // 4
+	glm::vec2 pad; // 8
 	// Max alignment = 16, so pad till nearest multiple of 16
-	// Total size 16 * 2 + 8 + 4 = 44. 
-	// Pad with 4 to get 48 = 16 * 3
+	// Total size 16 + 8 = 24
+	// Pad with 8 to get 32 = 16 * 2
 
 	static VkVertexInputBindingDescription getBindingDescription()
 	{
@@ -155,6 +150,7 @@ void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT
 	}
 }
 
+// Change compute buffers to pingpong between 2 instead of circlebuffered around MAX_FRAMES_IN_FLIGHT
 class MpmVulkan
 {
 public:
@@ -200,9 +196,14 @@ private:
 	VkDescriptorSetLayout computeDescriptorSetLayout;
 	VkPipelineLayout computePipelineLayout;
 
-
-	VkPipeline gridComputePipeline;
 	VkPipeline g2p2gComputePipeline;
+	VkPipeline processhistogramComputePipeline;
+	VkPipeline localsumComputePipeline;
+	VkPipeline partialglobalsumComputePipeline;
+	VkPipeline globalsumComputePipeline;
+	VkPipeline scatterComputePipeline;
+	VkPipeline clearhistogramComputePipeline;
+	VkPipeline gridComputePipeline;
 
 	VkSwapchainKHR swapChain;
 	std::vector<VkImage> swapChainImages;
@@ -231,8 +232,11 @@ private:
 
 	uint32_t currentFrame = 0;
 
-	std::vector<VkBuffer> particleBuffers;
-	std::vector<VkDeviceMemory> particleBuffersMemory;
+	std::vector<VkBuffer> binBuffers;
+	std::vector<VkDeviceMemory> binBuffersMemory;
+
+	std::vector<VkBuffer> graphicsBuffers;
+	std::vector<VkDeviceMemory> graphicsBuffersMemory;
 
 	std::vector<VkBuffer> vBuffers;
 	std::vector<VkDeviceMemory> vBuffersMemory;
@@ -240,20 +244,37 @@ private:
 	VkBuffer mBuffer;
 	VkDeviceMemory mBufferMemory;
 
-	VkBuffer histogramBuffer;
-	VkDeviceMemory histogramBufferMemory;
+	std::vector<VkBuffer> histogramBuffers;
+	std::vector<VkDeviceMemory> histogramBuffersMemory;
+
+	std::vector<VkBuffer> binIndexBuffers;
+	std::vector<VkDeviceMemory> binIndexBuffersMemory;
+
+	VkBuffer particleIndexBuffer;
+	VkDeviceMemory particleIndexBufferMemory;
+
+	VkBuffer binSumBuffer;
+	VkDeviceMemory binSumBufferMemory;
+
+	VkBuffer particleSumBuffer;
+	VkDeviceMemory particleSumBufferMemory;
+
+	std::vector<VkBuffer> indirectDispatchBuffers;
+	std::vector<VkDeviceMemory> indirectDispatchBuffersMemory;
 
 	std::vector<VkBuffer> uniformBuffers;
 	std::vector<VkDeviceMemory> uniformBuffersMemory;
 	std::vector<void*> uniformBuffersMapped;
 
-	uint32_t dimensions = 1 << 6;
-	float mass = 1.0f;
+	uint32_t dimensions = 1 << 7; // Max: 1024. Min: 64
+	uint32_t blockDimensions = dimensions / 4;
+	uint32_t binCount = blockDimensions * blockDimensions + PARTICLE_COUNT / BIN_SIZE + 1;
 	float E = 10000;
 	float v = 0.49;
 	float rho = 100;
 	float dx = 1.0f;
 	float dt = 0.01f;
+	float size = 0.2f;
 
 	void mainLoop()
 	{
@@ -465,7 +486,7 @@ private:
 		ubo.dx = dx;
 		ubo.invDx = 1.0f / dx;
 		ubo.dimensions = dimensions;
-		ubo.blockDimensions = dimensions / 4;
+		ubo.blockDimensions = blockDimensions;
 		ubo.dt = dt;
 
 		memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
@@ -951,20 +972,28 @@ private:
 	{
 		std::vector<dsl::DescriptorAllocator::PoolSizeRatio> sizes =
 		{
-			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1.0f / 7.0f },
-			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 6.0f / 7.0f }
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1.0f / 15.0f },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 14.0f / 15.0f }
 		};
 
-		computeDescriptorAllocator.initPool(device, MAX_FRAMES_IN_FLIGHT * 7, sizes);
+		computeDescriptorAllocator.initPool(device, MAX_FRAMES_IN_FLIGHT * 15, sizes);
 
 		dsl::DescriptorLayoutBuilder builder{};
-		builder.addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-		builder.addBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-		builder.addBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-		builder.addBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-		builder.addBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-		builder.addBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-		builder.addBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+		builder.addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER); // UBO
+		builder.addBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // VR
+		builder.addBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // VW
+		builder.addBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // M
+		builder.addBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // HR
+		builder.addBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // HW
+		builder.addBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // BIR
+		builder.addBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // BIW
+		builder.addBinding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // PI
+		builder.addBinding(9, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // BS
+		builder.addBinding(10, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // PS
+		builder.addBinding(11, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // BR
+		builder.addBinding(12, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // BW
+		builder.addBinding(13, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // G
+		builder.addBinding(14, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // ID
 
 		builder.build(device, VK_SHADER_STAGE_COMPUTE_BIT, computeDescriptorSetLayout);
 
@@ -975,7 +1004,7 @@ private:
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
-			std::array<VkWriteDescriptorSet, 7> descriptorWrites{};
+			std::array<VkWriteDescriptorSet, 15> descriptorWrites{};
 
 			VkDescriptorBufferInfo uniformBufferInfo{};
 			uniformBufferInfo.buffer = uniformBuffers[i];
@@ -1029,10 +1058,10 @@ private:
 			descriptorWrites[3].descriptorCount = 1;
 			descriptorWrites[3].pBufferInfo = &mBufferWriteInfo;
 
-			VkDescriptorBufferInfo histogramBufferWriteInfo{};
-			histogramBufferWriteInfo.buffer = histogramBuffer;
-			histogramBufferWriteInfo.offset = 0;
-			histogramBufferWriteInfo.range = sizeof(uint32_t) * dimensions * dimensions;
+			VkDescriptorBufferInfo histogramBufferReadInfo{};
+			histogramBufferReadInfo.buffer = histogramBuffers[(i + MAX_FRAMES_IN_FLIGHT - 1) % MAX_FRAMES_IN_FLIGHT];
+			histogramBufferReadInfo.offset = 0;
+			histogramBufferReadInfo.range = sizeof(uint32_t) * blockDimensions * blockDimensions;
 
 			descriptorWrites[4].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			descriptorWrites[4].dstSet = computeDescriptorSets[i];
@@ -1040,12 +1069,12 @@ private:
 			descriptorWrites[4].dstArrayElement = 0;
 			descriptorWrites[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 			descriptorWrites[4].descriptorCount = 1;
-			descriptorWrites[4].pBufferInfo = &histogramBufferWriteInfo;
+			descriptorWrites[4].pBufferInfo = &histogramBufferReadInfo;
 
-			VkDescriptorBufferInfo particleBufferReadInfo{};
-			particleBufferReadInfo.buffer = particleBuffers[(i + MAX_FRAMES_IN_FLIGHT - 1) % MAX_FRAMES_IN_FLIGHT];
-			particleBufferReadInfo.offset = 0;
-			particleBufferReadInfo.range = sizeof(Particle) * PARTICLE_COUNT;
+			VkDescriptorBufferInfo histogramBufferWriteInfo{};
+			histogramBufferWriteInfo.buffer = histogramBuffers[i];
+			histogramBufferWriteInfo.offset = 0;
+			histogramBufferWriteInfo.range = sizeof(uint32_t) * blockDimensions * blockDimensions;
 
 			descriptorWrites[5].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			descriptorWrites[5].dstSet = computeDescriptorSets[i];
@@ -1053,12 +1082,12 @@ private:
 			descriptorWrites[5].dstArrayElement = 0;
 			descriptorWrites[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 			descriptorWrites[5].descriptorCount = 1;
-			descriptorWrites[5].pBufferInfo = &particleBufferReadInfo;
+			descriptorWrites[5].pBufferInfo = &histogramBufferWriteInfo;
 
-			VkDescriptorBufferInfo particleBufferWriteInfo{};
-			particleBufferWriteInfo.buffer = particleBuffers[i];
-			particleBufferWriteInfo.offset = 0;
-			particleBufferWriteInfo.range = sizeof(Particle) * PARTICLE_COUNT;
+			VkDescriptorBufferInfo binIndexBufferReadInfo{};
+			binIndexBufferReadInfo.buffer = binIndexBuffers[(i + MAX_FRAMES_IN_FLIGHT - 1) % MAX_FRAMES_IN_FLIGHT];
+			binIndexBufferReadInfo.offset = 0;
+			binIndexBufferReadInfo.range = sizeof(uint32_t) * blockDimensions * blockDimensions;
 
 			descriptorWrites[6].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			descriptorWrites[6].dstSet = computeDescriptorSets[i];
@@ -1066,7 +1095,111 @@ private:
 			descriptorWrites[6].dstArrayElement = 0;
 			descriptorWrites[6].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 			descriptorWrites[6].descriptorCount = 1;
-			descriptorWrites[6].pBufferInfo = &particleBufferWriteInfo;
+			descriptorWrites[6].pBufferInfo = &binIndexBufferReadInfo;
+
+			VkDescriptorBufferInfo binIndexBufferWriteInfo{};
+			binIndexBufferWriteInfo.buffer = binIndexBuffers[i];
+			binIndexBufferWriteInfo.offset = 0;
+			binIndexBufferWriteInfo.range = sizeof(uint32_t) * blockDimensions * blockDimensions;
+
+			descriptorWrites[7].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[7].dstSet = computeDescriptorSets[i];
+			descriptorWrites[7].dstBinding = 7;
+			descriptorWrites[7].dstArrayElement = 0;
+			descriptorWrites[7].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			descriptorWrites[7].descriptorCount = 1;
+			descriptorWrites[7].pBufferInfo = &binIndexBufferWriteInfo;
+
+			VkDescriptorBufferInfo particleIndexBufferInfo{};
+			particleIndexBufferInfo.buffer = particleIndexBuffer;
+			particleIndexBufferInfo.offset = 0;
+			particleIndexBufferInfo.range = sizeof(uint32_t) * blockDimensions * blockDimensions;
+
+			descriptorWrites[8].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[8].dstSet = computeDescriptorSets[i];
+			descriptorWrites[8].dstBinding = 8;
+			descriptorWrites[8].dstArrayElement = 0;
+			descriptorWrites[8].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			descriptorWrites[8].descriptorCount = 1;
+			descriptorWrites[8].pBufferInfo = &particleIndexBufferInfo;
+
+			VkDescriptorBufferInfo binSumBufferInfo{};
+			binSumBufferInfo.buffer = binSumBuffer;
+			binSumBufferInfo.offset = 0;
+			binSumBufferInfo.range = sizeof(uint32_t) * SUM_KERNEL_SIZE;
+
+			descriptorWrites[9].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[9].dstSet = computeDescriptorSets[i];
+			descriptorWrites[9].dstBinding = 9;
+			descriptorWrites[9].dstArrayElement = 0;
+			descriptorWrites[9].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			descriptorWrites[9].descriptorCount = 1;
+			descriptorWrites[9].pBufferInfo = &binSumBufferInfo;
+
+			VkDescriptorBufferInfo particleSumBufferInfo{};
+			particleSumBufferInfo.buffer = particleSumBuffer;
+			particleSumBufferInfo.offset = 0;
+			particleSumBufferInfo.range = sizeof(uint32_t) * SUM_KERNEL_SIZE;
+
+			descriptorWrites[10].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[10].dstSet = computeDescriptorSets[i];
+			descriptorWrites[10].dstBinding = 10;
+			descriptorWrites[10].dstArrayElement = 0;
+			descriptorWrites[10].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			descriptorWrites[10].descriptorCount = 1;
+			descriptorWrites[10].pBufferInfo = &particleSumBufferInfo;
+
+			VkDescriptorBufferInfo BinBufferReadInfo{};
+			BinBufferReadInfo.buffer = binBuffers[(i + MAX_FRAMES_IN_FLIGHT - 1) % MAX_FRAMES_IN_FLIGHT];
+			BinBufferReadInfo.offset = 0;
+			BinBufferReadInfo.range = sizeof(Bin) * binCount;
+
+			descriptorWrites[11].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[11].dstSet = computeDescriptorSets[i];
+			descriptorWrites[11].dstBinding = 11;
+			descriptorWrites[11].dstArrayElement = 0;
+			descriptorWrites[11].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			descriptorWrites[11].descriptorCount = 1;
+			descriptorWrites[11].pBufferInfo = &BinBufferReadInfo;
+
+			VkDescriptorBufferInfo BinBufferWriteInfo{};
+			BinBufferWriteInfo.buffer = binBuffers[i];
+			BinBufferWriteInfo.offset = 0;
+			BinBufferWriteInfo.range = sizeof(Bin) * binCount;
+
+			descriptorWrites[12].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[12].dstSet = computeDescriptorSets[i];
+			descriptorWrites[12].dstBinding = 12;
+			descriptorWrites[12].dstArrayElement = 0;
+			descriptorWrites[12].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			descriptorWrites[12].descriptorCount = 1;
+			descriptorWrites[12].pBufferInfo = &BinBufferWriteInfo;
+
+			VkDescriptorBufferInfo particleBufferInfo{};
+			particleBufferInfo.buffer = graphicsBuffers[i];
+			particleBufferInfo.offset = 0;
+			particleBufferInfo.range = sizeof(Particle) * PARTICLE_COUNT;
+
+			descriptorWrites[13].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[13].dstSet = computeDescriptorSets[i];
+			descriptorWrites[13].dstBinding = 13;
+			descriptorWrites[13].dstArrayElement = 0;
+			descriptorWrites[13].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			descriptorWrites[13].descriptorCount = 1;
+			descriptorWrites[13].pBufferInfo = &particleBufferInfo;
+
+			VkDescriptorBufferInfo indirectDispatchBufferWriteInfo{};
+			indirectDispatchBufferWriteInfo.buffer = indirectDispatchBuffers[i];
+			indirectDispatchBufferWriteInfo.offset = 0;
+			indirectDispatchBufferWriteInfo.range = sizeof(VkDispatchIndirectCommand);
+
+			descriptorWrites[14].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[14].dstSet = computeDescriptorSets[i];
+			descriptorWrites[14].dstBinding = 14;
+			descriptorWrites[14].dstArrayElement = 0;
+			descriptorWrites[14].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			descriptorWrites[14].descriptorCount = 1;
+			descriptorWrites[14].pBufferInfo = &indirectDispatchBufferWriteInfo;
 
 			vkUpdateDescriptorSets(device, descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
 		}
@@ -1074,13 +1207,25 @@ private:
 
 	void createComputePipelines()
 	{
-		auto g2p2gComputeShaderCode = readFile("../shaders/g2p2g.comp.spv");
-		auto gridComputeShaderCode = readFile("../shaders/grid.comp.spv");
+		auto g2p2gCode = readFile("../shaders/g2p2g.comp.spv");
+		auto processhistogramCode = readFile("../shaders/processhistogram.comp.spv");
+		auto localsumCode = readFile("../shaders/localsum.comp.spv");
+		auto partialglobalsumCode = readFile("../shaders/partialglobalsum.comp.spv");
+		auto globalsumCode = readFile("../shaders/globalsum.comp.spv");
+		auto scatterCode = readFile("../shaders/scatter.comp.spv");
+		auto clearhistogramCode = readFile("../shaders/clearhistogram.comp.spv");
+		auto gridCode = readFile("../shaders/grid.comp.spv");
 
 		std::vector<VkShaderModule> shaderModules =
 		{
-			createShaderModule(g2p2gComputeShaderCode),
-			createShaderModule(gridComputeShaderCode)
+			createShaderModule(g2p2gCode),
+			createShaderModule(processhistogramCode),
+			createShaderModule(localsumCode),
+			createShaderModule(partialglobalsumCode),
+			createShaderModule(globalsumCode),
+			createShaderModule(scatterCode),
+			createShaderModule(clearhistogramCode),
+			createShaderModule(gridCode)
 		};
 
 		std::vector<VkPipelineShaderStageCreateInfo> stageInfos{};
@@ -1095,17 +1240,12 @@ private:
 			stageInfos.push_back(computeStageInfo);
 		}
 
-		VkPushConstantRange range{};
-		range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-		range.offset = 0;
-		range.size = sizeof(PushConstants);
-
 		VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
 		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 		pipelineLayoutInfo.setLayoutCount = 1;
 		pipelineLayoutInfo.pSetLayouts = &computeDescriptorSetLayout;
-		pipelineLayoutInfo.pushConstantRangeCount = 1;
-		pipelineLayoutInfo.pPushConstantRanges = &range;
+		pipelineLayoutInfo.pushConstantRangeCount = 0;
+		pipelineLayoutInfo.pPushConstantRanges = nullptr; // Remember if i ever want to use push constants
 
 		if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &computePipelineLayout) != VK_SUCCESS)
 		{
@@ -1124,14 +1264,20 @@ private:
 			pipelineInfos.push_back(pipelineInfo);
 		}
 
-		std::vector<VkPipeline> pipelines(2);
+		std::vector<VkPipeline> pipelines(shaderModules.size());
 		if (vkCreateComputePipelines(device, VK_NULL_HANDLE, pipelineInfos.size(), pipelineInfos.data(), nullptr, pipelines.data()) != VK_SUCCESS)
 		{
 			throw std::runtime_error("Failed to create compute pipelines.");
 		}
 
 		g2p2gComputePipeline = pipelines[0];
-		gridComputePipeline = pipelines[1];
+		processhistogramComputePipeline = pipelines[1];
+		localsumComputePipeline = pipelines[2];
+		partialglobalsumComputePipeline = pipelines[3];
+		globalsumComputePipeline = pipelines[4];
+		scatterComputePipeline = pipelines[5];
+		clearhistogramComputePipeline = pipelines[6];
+		gridComputePipeline = pipelines[7];
 
 		for (VkShaderModule& module : shaderModules)
 		{
@@ -1265,7 +1411,7 @@ private:
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
 
 		VkDeviceSize offsets[] = { 0 };
-		vkCmdBindVertexBuffers(commandBuffer, 0, 1, &particleBuffers[currentFrame], offsets);
+		vkCmdBindVertexBuffers(commandBuffer, 0, 1, &graphicsBuffers[currentFrame], offsets);
 
 		vkCmdDraw(commandBuffer, PARTICLE_COUNT, 1, 0, 0);
 
@@ -1289,25 +1435,113 @@ private:
 			throw std::runtime_error("Failed to begin recording compute command buffer.");
 		}
 
+		VkMemoryBarrier computeToComputeBarrier{};
+		computeToComputeBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+		computeToComputeBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+		computeToComputeBarrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+
+		VkMemoryBarrier computeToIndirectBarrier{};
+		computeToIndirectBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+		computeToIndirectBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+		computeToIndirectBarrier.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+
+		vkCmdPipelineBarrier(commandBuffer,
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+			0,
+			1, &computeToIndirectBarrier,
+			0, nullptr,
+			0, nullptr
+		);
+
 		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &computeDescriptorSets[currentFrame], 0, nullptr);
 
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, g2p2gComputePipeline);
-		vkCmdDispatch(commandBuffer, PARTICLE_COUNT / PARTICLE_KERNEL_SIZE, 1, 1);
-
-		VkMemoryBarrier memoryBarrier{};
-		memoryBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-		memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-		memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+		vkCmdDispatchIndirect(commandBuffer, indirectDispatchBuffers[(currentFrame + MAX_FRAMES_IN_FLIGHT - 1) % MAX_FRAMES_IN_FLIGHT], 0);
 		
 		vkCmdPipelineBarrier(commandBuffer, 
 			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 			0,
-			1, &memoryBarrier,
+			1, &computeToComputeBarrier,
+			0, nullptr,
+			0, nullptr
+		); 
+
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, processhistogramComputePipeline);
+		vkCmdDispatch(commandBuffer, blockDimensions / BLOCK_KERNEL_SIZE, blockDimensions / BLOCK_KERNEL_SIZE, 1);
+
+		vkCmdPipelineBarrier(commandBuffer,
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			0,
+			1, &computeToComputeBarrier,
 			0, nullptr,
 			0, nullptr
 		);
+
+		// Look into https://research.nvidia.com/publication/2016-03_single-pass-parallel-prefix-scan-decoupled-look-back
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, localsumComputePipeline);
+			vkCmdDispatch(commandBuffer, blockDimensions * blockDimensions / SUM_KERNEL_SIZE, 1, 1);
+
+			vkCmdPipelineBarrier(commandBuffer,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				0,
+				1, &computeToComputeBarrier,
+				0, nullptr,
+				0, nullptr
+			);
+
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, partialglobalsumComputePipeline);
+			vkCmdDispatch(commandBuffer, 1, 1, 1);
+
+			vkCmdPipelineBarrier(commandBuffer,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				0,
+				1, &computeToComputeBarrier,
+				0, nullptr,
+				0, nullptr
+			);
+
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, globalsumComputePipeline);
+			vkCmdDispatch(commandBuffer, blockDimensions * blockDimensions / SUM_KERNEL_SIZE, 1, 1);
+			
+			vkCmdPipelineBarrier(commandBuffer,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+				0,
+				1, &computeToIndirectBarrier,
+				0, nullptr,
+				0, nullptr
+			);
+		//
+
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, scatterComputePipeline);
+		vkCmdDispatchIndirect(commandBuffer, indirectDispatchBuffers[(currentFrame + MAX_FRAMES_IN_FLIGHT - 1) % MAX_FRAMES_IN_FLIGHT], 0);
+
+		vkCmdPipelineBarrier(commandBuffer,
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			0,
+			1, &computeToComputeBarrier,
+			0, nullptr,
+			0, nullptr
+		);
+
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, clearhistogramComputePipeline);
+		vkCmdDispatch(commandBuffer, blockDimensions / BLOCK_KERNEL_SIZE, blockDimensions / BLOCK_KERNEL_SIZE, 1);
 		
+		vkCmdPipelineBarrier(commandBuffer,
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			0,
+			1, &computeToComputeBarrier,
+			0, nullptr,
+			0, nullptr
+		);
+
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, gridComputePipeline);
 		vkCmdDispatch(commandBuffer, dimensions / GRID_KERNEL_SIZE, dimensions / GRID_KERNEL_SIZE, 1);
 
@@ -1401,35 +1635,93 @@ private:
 		vkDestroySwapchainKHR(device, swapChain, nullptr);
 	}
 
+	// Make a method for these copies or smth
 	void createShaderStorageBuffers()
 	{
-		particleBuffers.resize(MAX_FRAMES_IN_FLIGHT);
-		particleBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
+		binBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+		binBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
+
+		graphicsBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+		graphicsBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
 
 		vBuffers.resize(MAX_FRAMES_IN_FLIGHT);
 		vBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
 
-		std::default_random_engine rndEngine((unsigned)time(nullptr));
+		histogramBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+		histogramBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
+
+		binIndexBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+		binIndexBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
+
+		indirectDispatchBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+		indirectDispatchBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
+
+		float pi = 3.14159265358979323846f;
+		float worldR = size * (dimensions / 2) * dx;
+		float volume = worldR * worldR * pi;
+		float totalMass = volume * rho;
+		float mass = totalMass / PARTICLE_COUNT;
+
+		//std::default_random_engine rndEngine((unsigned)time(nullptr));
+		std::default_random_engine rndEngine((unsigned)2u);
 		std::uniform_real_distribution<float> rndDist(0.0f, 1.0f);
 
+		uint32_t blocks = blockDimensions * blockDimensions;
+		uint32_t cells = dimensions * dimensions;
+
+		std::vector<uint32_t> histogram(blocks);
 		std::vector<Particle> particles(PARTICLE_COUNT);
-		for (auto& particle : particles)
+		std::vector<uint32_t> blockPIndex(PARTICLE_COUNT);
+		for (size_t i = 0; i < PARTICLE_COUNT; i++)
 		{
-			float r = 0.2f * sqrt(rndDist(rndEngine));
-			float theta = rndDist(rndEngine) * 2 * 3.14159265358979323846;
+			float r = size * sqrt(rndDist(rndEngine));
+			float theta = rndDist(rndEngine) * 2 * pi;
 			float x = r * cos(theta);
 			float y = r * sin(theta);
 
-			x = (x + 1.0f) / 2.0f * dimensions * dx;
-			y = (y + 1.0f) / 2.0f * dimensions * dx;
+			x = (x + 1.0f) / 2.0f * dimensions;
+			y = (y + 1.0f) / 2.0f * dimensions;
 
-			particle.position = glm::vec2(x, y);
-			particle.F = glm::mat2(1.0f);
-			particle.mass = mass;
-			particle.color = glm::vec4(rndDist(rndEngine), rndDist(rndEngine), rndDist(rndEngine), 1.0f);
+			glm::vec2 cellPos = glm::vec2(x, y);
+			glm::vec2 pos = glm::vec2(x, y) * dx;
+			glm::ivec2 coords = glm::ivec2(glm::floor(cellPos - 0.5f));
+			glm::ivec2 blockCoords = coords / 4;
+			uint32_t blockIndex = blockCoords.x + blockCoords.y * blockDimensions;
+
+			blockPIndex[i] = histogram[blockIndex]++;
+			particles[i].position = pos;
+			particles[i].color = glm::vec4(rndDist(rndEngine), rndDist(rndEngine), rndDist(rndEngine), 1.0f);
 		}
 
-		VkDeviceSize bufferSize = sizeof(Particle) * PARTICLE_COUNT;
+		std::vector<uint32_t> binOffsets(blocks);
+		for (size_t i = 1; i < blocks; i++)
+		{
+			uint32_t binCount = ceilIntDivision(histogram[i - 1], BIN_SIZE);
+			binOffsets[i] = binCount + binOffsets[i - 1];
+		}
+		uint32_t totalUsedBins = binOffsets[blocks - 1] + ceilIntDivision(histogram[blocks - 1], BIN_SIZE);
+
+		std::vector<Bin> bins(binCount);
+		for (size_t i = 0; i < PARTICLE_COUNT; i++)
+		{
+			glm::vec2 pos = particles[i].position;
+			glm::vec2 cellPos = pos / dx;
+			glm::ivec2 coords = glm::ivec2(glm::floor(cellPos - 0.5f));
+			glm::ivec2 blockCoords = coords / 4;
+			uint32_t blockIndex = blockCoords.x + blockCoords.y * blockDimensions;
+
+			uint32_t baseBin = binOffsets[blockIndex];
+			uint32_t binIndex = baseBin + blockPIndex[i] / BIN_SIZE;
+			uint32_t pIndex = blockPIndex[i] % BIN_SIZE;
+			bins[binIndex].F[pIndex] = glm::mat2(1.0f);
+			bins[binIndex].position[pIndex] = pos;
+			bins[binIndex].mass[pIndex] = mass;
+			bins[binIndex].blockParticleIndex[pIndex] = blockPIndex[i];
+			bins[binIndex].block = blockIndex;
+		}
+
+		// Bins
+		VkDeviceSize bufferSize = sizeof(Bin) * binCount;
 
 		VkBuffer stagingBuffer;
 		VkDeviceMemory stagingBufferMemory;
@@ -1437,22 +1729,23 @@ private:
 
 		void* data;
 		vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-		memcpy(data, particles.data(), (size_t)bufferSize);
+		memcpy(data, bins.data(), (size_t)bufferSize);
 		vkUnmapMemory(device, stagingBufferMemory);
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
-			createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, particleBuffers[i], particleBuffersMemory[i]);
+			createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, binBuffers[i], binBuffersMemory[i]);
 
-			copyBuffer(stagingBuffer, particleBuffers[i], bufferSize);
+			copyBuffer(stagingBuffer, binBuffers[i], bufferSize);
 		}
 
 		vkDestroyBuffer(device, stagingBuffer, nullptr);
 		vkFreeMemory(device, stagingBufferMemory, nullptr);
+		//
 
-
-		std::vector<glm::vec2> v(dimensions * dimensions);
-		bufferSize = sizeof(glm::vec2) * dimensions * dimensions;
+		// V
+		std::vector<glm::vec2> v(cells);
+		bufferSize = sizeof(glm::vec2) * cells;
 		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
 
 		vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
@@ -1468,10 +1761,11 @@ private:
 
 		vkDestroyBuffer(device, stagingBuffer, nullptr);
 		vkFreeMemory(device, stagingBufferMemory, nullptr);
+		//
 
-
-		std::vector<float> m(dimensions * dimensions);
-		bufferSize = sizeof(float) * dimensions * dimensions;
+		// M
+		std::vector<float> m(cells);
+		bufferSize = sizeof(float) * cells;
 		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
 
 		vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
@@ -1483,21 +1777,125 @@ private:
 
 		vkDestroyBuffer(device, stagingBuffer, nullptr);
 		vkFreeMemory(device, stagingBufferMemory, nullptr);
+		//
 
-
-		std::vector<uint32_t> histogram(dimensions * dimensions);
-		bufferSize = sizeof(uint32_t) * dimensions * dimensions;
+		// Histogram
+		std::vector<uint32_t> h(blocks);
+		bufferSize = sizeof(uint32_t) * blocks;
 		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
+
+		vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
+		memcpy(data, h.data(), (size_t)bufferSize);
+		vkUnmapMemory(device, stagingBufferMemory);
+
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+		{
+			createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, histogramBuffers[i], histogramBuffersMemory[i]);
+
+			copyBuffer(stagingBuffer, histogramBuffers[i], bufferSize);
+		}
+
+		vkQueueWaitIdle(graphicsQueue);
 
 		vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
 		memcpy(data, histogram.data(), (size_t)bufferSize);
 		vkUnmapMemory(device, stagingBufferMemory);
 
-		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, histogramBuffer, histogramBufferMemory);
-		copyBuffer(stagingBuffer, histogramBuffer, bufferSize);
+		copyBuffer(stagingBuffer, histogramBuffers[(MAX_FRAMES_IN_FLIGHT - 1) % MAX_FRAMES_IN_FLIGHT], bufferSize);
 
 		vkDestroyBuffer(device, stagingBuffer, nullptr);
 		vkFreeMemory(device, stagingBufferMemory, nullptr);
+		//
+
+		// counters
+		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
+
+		vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
+		memcpy(data, binOffsets.data(), (size_t)bufferSize);
+		vkUnmapMemory(device, stagingBufferMemory);
+
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+		{
+			createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, binIndexBuffers[i], binIndexBuffersMemory[i]);
+
+			copyBuffer(stagingBuffer, binIndexBuffers[i], bufferSize);
+		}
+
+		vkDestroyBuffer(device, stagingBuffer, nullptr);
+		vkFreeMemory(device, stagingBufferMemory, nullptr);
+
+		createBuffer(bufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, particleIndexBuffer, particleIndexBufferMemory);
+		//
+		
+		// local sums
+		std::vector<uint32_t> emptySums(SUM_KERNEL_SIZE);
+		bufferSize = sizeof(uint32_t) * SUM_KERNEL_SIZE;
+		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
+
+		vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
+		memcpy(data, emptySums.data(), (size_t)bufferSize);
+		vkUnmapMemory(device, stagingBufferMemory);
+
+		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, binSumBuffer, binSumBufferMemory);
+		copyBuffer(stagingBuffer, binSumBuffer, bufferSize);
+		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, particleSumBuffer, particleSumBufferMemory);
+		copyBuffer(stagingBuffer, particleSumBuffer, bufferSize);
+
+		vkDestroyBuffer(device, stagingBuffer, nullptr);
+		vkFreeMemory(device, stagingBufferMemory, nullptr);
+		//
+		
+		// Particles
+		bufferSize = sizeof(Particle) * PARTICLE_COUNT;
+		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
+
+		vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
+		memcpy(data, particles.data(), (size_t)bufferSize);
+		vkUnmapMemory(device, stagingBufferMemory);
+		
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+		{
+			createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, graphicsBuffers[i], graphicsBuffersMemory[i]);
+
+			copyBuffer(stagingBuffer, graphicsBuffers[i], bufferSize);
+		}
+
+		vkDestroyBuffer(device, stagingBuffer, nullptr);
+		vkFreeMemory(device, stagingBufferMemory, nullptr);
+		//
+
+		// Indirect dispatch
+		bufferSize = sizeof(VkDispatchIndirectCommand);
+		VkDispatchIndirectCommand indirectCommandData{};
+		indirectCommandData.x = ceilIntDivision(totalUsedBins * BIN_SIZE, PARTICLE_KERNEL_SIZE);
+		indirectCommandData.y = 1;
+		indirectCommandData.z = 1;
+
+		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
+
+		vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
+		memcpy(data, &indirectCommandData, (size_t)bufferSize);
+		vkUnmapMemory(device, stagingBufferMemory);
+
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+		{
+			createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, indirectDispatchBuffers[i], indirectDispatchBuffersMemory[i]);
+
+			copyBuffer(stagingBuffer, indirectDispatchBuffers[i], bufferSize);
+		}
+
+		vkDestroyBuffer(device, stagingBuffer, nullptr);
+		vkFreeMemory(device, stagingBufferMemory, nullptr);
+		//
+		
+		// Maybe create seperate transferqueue?
+		vkQueueWaitIdle(graphicsQueue);
+		//
+	}
+
+	uint32_t ceilIntDivision(uint32_t a, uint32_t b)
+	{
+		return a / b + (a % b != 0);
 	}
 
 	void createUniformBuffers()
@@ -1774,7 +2172,6 @@ private:
 	void endSingleTimeCommands(VkCommandBuffer commandBuffer)
 	{
 		vkEndCommandBuffer(commandBuffer);
-
 		VkSubmitInfo submitInfo{};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 		submitInfo.commandBufferCount = 1;
@@ -1862,6 +2259,12 @@ private:
 		vkDestroyPipelineLayout(device, graphicsPipelineLayout, nullptr);
 
 		vkDestroyPipeline(device, g2p2gComputePipeline, nullptr);
+		vkDestroyPipeline(device, processhistogramComputePipeline, nullptr);
+		vkDestroyPipeline(device, localsumComputePipeline, nullptr);
+		vkDestroyPipeline(device, partialglobalsumComputePipeline, nullptr);
+		vkDestroyPipeline(device, globalsumComputePipeline, nullptr);
+		vkDestroyPipeline(device, scatterComputePipeline, nullptr);
+		vkDestroyPipeline(device, clearhistogramComputePipeline, nullptr);
 		vkDestroyPipeline(device, gridComputePipeline, nullptr);
 		vkDestroyPipelineLayout(device, computePipelineLayout, nullptr);
 
@@ -1879,22 +2282,40 @@ private:
 		vkDestroyDescriptorSetLayout(device, graphicsDescriptorSetLayout, nullptr);
 		vkDestroyDescriptorSetLayout(device, computeDescriptorSetLayout, nullptr);
 
-		for (size_t i = 0; i < 2; i++)
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
 			vkDestroyBuffer(device, vBuffers[i], nullptr);
 			vkFreeMemory(device, vBuffersMemory[i], nullptr);
+
+			vkDestroyBuffer(device, binBuffers[i], nullptr);
+			vkFreeMemory(device, binBuffersMemory[i], nullptr);
+
+			vkDestroyBuffer(device, indirectDispatchBuffers[i], nullptr);
+			vkFreeMemory(device, indirectDispatchBuffersMemory[i], nullptr);
+
+			vkDestroyBuffer(device, histogramBuffers[i], nullptr);
+			vkFreeMemory(device, histogramBuffersMemory[i], nullptr);
+
+			vkDestroyBuffer(device, binIndexBuffers[i], nullptr);
+			vkFreeMemory(device, binIndexBuffersMemory[i], nullptr);
 		}
 
 		vkDestroyBuffer(device, mBuffer, nullptr);
 		vkFreeMemory(device, mBufferMemory, nullptr);
 
-		vkDestroyBuffer(device, histogramBuffer, nullptr);
-		vkFreeMemory(device, histogramBufferMemory, nullptr);
+		vkDestroyBuffer(device, particleIndexBuffer, nullptr);
+		vkFreeMemory(device, particleIndexBufferMemory, nullptr);
+
+		vkDestroyBuffer(device, binSumBuffer, nullptr);
+		vkFreeMemory(device, binSumBufferMemory, nullptr);
+
+		vkDestroyBuffer(device, particleSumBuffer, nullptr);
+		vkFreeMemory(device, particleSumBufferMemory, nullptr);
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
-			vkDestroyBuffer(device, particleBuffers[i], nullptr);
-			vkFreeMemory(device, particleBuffersMemory[i], nullptr);
+			vkDestroyBuffer(device, graphicsBuffers[i], nullptr);
+			vkFreeMemory(device, graphicsBuffersMemory[i], nullptr);
 		}
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
@@ -1932,7 +2353,7 @@ private:
 
 		if (!file.is_open())
 		{
-			throw std::runtime_error("Failed to open file.");
+			throw std::runtime_error("Failed to open file " + filename + ".");
 		}
 
 		size_t fileSize = (size_t)file.tellg();

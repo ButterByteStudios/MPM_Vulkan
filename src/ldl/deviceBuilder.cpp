@@ -79,7 +79,7 @@ namespace ldl
 		vkGetPhysicalDeviceProperties2(device, &physicalDeviceProperties);
 
 		VkSubgroupFeatureFlags requiredOperationFlags{};
-		requiredOperationFlags |= VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_ARITHMETIC_BIT;
+		requiredOperationFlags |= VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_ARITHMETIC_BIT | VK_SUBGROUP_FEATURE_BALLOT_BIT;
 
 		VkShaderStageFlags requiredStageFlags{};
 		requiredStageFlags |= VK_SHADER_STAGE_COMPUTE_BIT;

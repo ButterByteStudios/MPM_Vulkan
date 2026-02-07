@@ -5,12 +5,17 @@
 
 struct Bin
 {
-	vec4[BIN_SIZE] colors;
 	mat2[BIN_SIZE] F;
 	vec2[BIN_SIZE] position;
 	float[BIN_SIZE] mass;
-	uint[BIN_SIZE] blockIndex;
-	uint particleCount;
+	uint[BIN_SIZE] blockParticleIndex;
+	uint block;
+};
+
+struct Particle
+{
+	vec4 color;
+	vec2 position;
 };
 
 layout(binding = 0) uniform ParameterUBO
@@ -25,80 +30,107 @@ layout(binding = 0) uniform ParameterUBO
 	float dt;
 } ubo;
 
-layout(std430, binding = 1) readonly buffer GridVelocitySSBOUnused1
+layout(std430, binding = 4) buffer BlockHistogramSSBOOld
 {
-	vec2 vGridUnused1[];
+	uint histogramOld[];
 };
 
-layout(std430, binding = 2) writeonly buffer GridVelocitySSBOUnused2
+layout(std430, binding = 6) readonly buffer BlockBinOffsetsSSBOOld
 {
-	vec2 vGridUnused2[];
+    uint binOffsetsOld[];
 };
 
-layout(std430, binding = 3) writeonly buffer GridMassSSBOUnused
+layout(std430, binding = 7) readonly buffer BlockBinOffsetsSSBONew
 {
-	float mGridUnused[];
+    uint binOffsetsNew[];
 };
 
-layout(std430, binding = 4) buffer BlockHistogramSSBOUnused
+layout(std430, binding = 8) readonly buffer BlockParticleOffsetsSSBOIn
 {
-	uint histogramUnused[];
+    uint particleOffsets[];
 };
 
-layout(std430, binding = 5) readonly buffer BlockBinOffsetsSSBOIn
+// Size to 256, max grid dimensions = 1024 = 256 * 4
+layout(std430, binding = 9) buffer BlockBinSumSSBOInOut
 {
-    uint binOffsets[];
+	uint blockBinSum[];
 };
 
-layout(std430, binding = 6) readonly buffer BinSSBOIn
+// Size to 256, max grid dimensions = 1024 = 256 * 4
+layout(std430, binding = 10) buffer BlockParticleSumSSBOInOut
+{
+	uint blockParticleSum[];
+};
+
+layout(std430, binding = 11) readonly buffer BinSSBOIn
 {
 	Bin binsIn[];
 };
 
-layout(std430, binding = 7) writeonly buffer BinSSBOOut
+layout(std430, binding = 12) writeonly buffer BinSSBOOut
 {
 	Bin binsOut[];
 };
 
-layout(push_constant) uniform PushConstants {
-	uint stride;
-	uint halfStride;
-	uint start;
-} pc;
-
-uint index(uint x, uint y)
+layout(std430, binding = 13) buffer ParticleSSBOOut
 {
-	return x + y * ubo.dimensions;
-}
+	Particle particlesOut[];
+};
 
 uint blockIndex(uint x, uint y)
 {
 	return x + y * ubo.blockDimensions;
 }
 
+// Change to 2d layout to prevent modulo?
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 void main()
 {
 	uint globalIndex = gl_GlobalInvocationID.x;
-	uint binIndex = globalIndex / BIN_SIZE;
-	uint pIndex = globalIndex - binIndex * BIN_SIZE;
-	Bin bin = binsIn[binIndex];
+	uint workgroupIndex = gl_WorkGroupID.x;
+	uint localIndex = gl_LocalInvocationID.x;
 
-	if (pIndex >= bin.particleCount)
+	uint bIndex = globalIndex / BIN_SIZE;
+	uint currentPIndex = globalIndex - bIndex * BIN_SIZE;
+
+	uint block = binsIn[bIndex].block;
+	uint baseBin = binOffsetsOld[block];
+	uint blockBin = bIndex - baseBin;
+
+	uint blockParticleCount = histogramOld[block];
+
+	uint blockBinCount = (blockParticleCount + BIN_SIZE - 1) / BIN_SIZE;
+
+	uint binParticleCount = BIN_SIZE;
+	if (blockBin == blockBinCount - 1)
 	{
-		return;
+		binParticleCount = blockParticleCount - (blockBinCount - 1) * BIN_SIZE;
+		if (currentPIndex >= binParticleCount)
+		{
+			return;
+		}
 	}
 
-	ivec2 blockCoords = ivec2(bin.position[pIndex]) / 4;
-	uint block = blockIndex(blockCoords.x, blockCoords.y);
-	uint baseBin = binOffsets[block];
-	uint binOffset = bin.particleCount / BIN_SIZE;
-	uint particleOffset = bin.blockIndex[pIndex] % BIN_SIZE;
-	binIndex = baseBin + binOffset;
+	vec2 pPos = binsIn[bIndex].position[currentPIndex];
+	ivec2 blockCoords = ivec2(floor(pPos * ubo.invDx - 0.5)) / 4;
+	uint nextBlock = blockIndex(blockCoords.x, blockCoords.y);
 
-	binsOut[binIndex].colors[particleOffset] = bin.colors[pIndex];
-	binsOut[binIndex].F[particleOffset] = bin.F[pIndex];
-	binsOut[binIndex].position[particleOffset] = bin.position[pIndex];
-	binsOut[binIndex].mass[particleOffset] = bin.mass[pIndex];
+	uint blockParticleIndex = binsIn[bIndex].blockParticleIndex[currentPIndex];
+
+	uint binOffset = blockParticleIndex / BIN_SIZE;
+	uint nextPIndex = blockParticleIndex - binOffset * BIN_SIZE;
+	uint nextBaseBin = binOffsetsNew[nextBlock];
+	uint nextBIndex = nextBaseBin + binOffset;
+
+	binsOut[nextBIndex].F[nextPIndex] = binsIn[bIndex].F[currentPIndex];
+	binsOut[nextBIndex].position[nextPIndex] = pPos;
+	binsOut[nextBIndex].mass[nextPIndex] = binsIn[bIndex].mass[currentPIndex];
+
+	binsOut[nextBIndex].block = nextBlock;
+
+	uint graphicsPIndex = particleOffsets[nextBlock] + blockParticleIndex;
+	particlesOut[graphicsPIndex].position = binsIn[bIndex].position[currentPIndex];
+
+	// Replace block for a particlecount again, then at the end of scattering let nextpindex == 1 derive the new size and write it to the bin
 }

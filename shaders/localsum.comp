@@ -1,0 +1,123 @@
+
+#version 450
+
+// Tune for subgroup size
+#define BIN_SIZE 32
+
+struct Bin
+{
+	mat2[BIN_SIZE] F;
+	vec2[BIN_SIZE] position;
+	float[BIN_SIZE] mass;
+	uint[BIN_SIZE] blockIndex;
+	uint particleCount;
+};
+
+struct Particle
+{
+	vec4 color;
+	vec2 position;
+};
+
+layout(binding = 0) uniform ParameterUBO
+{
+	float k;
+	float mu;
+	float rho;
+	float dx;
+	float invDx;
+	int dimensions;
+	uint blockDimensions;
+	float dt;
+} ubo;
+
+layout(std430, binding = 7) buffer BlockBinCountSSBONew
+{
+    uint blockBinCountNew[];
+};
+
+layout(std430, binding = 8) buffer BlockParticleCountSSBOInOut
+{
+    uint blockParticleCount[];
+};
+
+// Size to 256, max grid dimensions = 1024 = 256 * 4
+layout(std430, binding = 9) writeonly buffer BlockBinSumSSBOOut
+{
+	uint blockBinSum[];
+};
+
+// Size to 256, max grid dimensions = 1024 = 256 * 4
+layout(std430, binding = 10) writeonly buffer BlockParticleSumSSBOOut
+{
+	uint blockParticleSum[];
+};
+
+// Works on blocks of 128 * 2, so N / 256 workgroups
+layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+
+shared uint shBin[256];
+shared uint shParticle[256];
+
+void main()
+{
+	uint localId = gl_LocalInvocationID.x;
+	uint block = gl_WorkGroupID.x;
+
+	uint base = block * 256;
+
+	shBin[2 * localId] = blockBinCountNew[base + 2 * localId];
+	shBin[2 * localId + 1] = blockBinCountNew[base + 2 * localId + 1];
+
+	shParticle[2 * localId] = blockParticleCount[base + 2 * localId];
+	shParticle[2 * localId + 1] = blockParticleCount[base + 2 * localId + 1];
+
+	barrier();
+
+	// Upsweep
+	for (uint offset = 1; offset < 256; offset <<= 1)
+	{
+		uint i = (localId + 1) * offset * 2 - 1;
+		if (i < 256)
+		{
+			shBin[i] += shBin[i - offset];
+			shParticle[i] += shParticle[i - offset];
+		}
+		barrier();
+	}
+
+	// Clear last
+	if (localId == 0)
+	{
+		blockBinSum[block] = shBin[256 - 1];
+		shBin[256 - 1] = 0;
+
+		blockParticleSum[block] = shParticle[256 - 1];
+		shParticle[256 - 1] = 0;
+	}
+
+	barrier();
+
+	// Downsweep
+	for (uint offset = 128; offset > 0; offset >>= 1)
+	{
+		uint i = (localId + 1) * 2 * offset - 1;
+		if (i < 256)
+		{
+			uint tBin = shBin[i - offset];
+			shBin[i - offset] = shBin[i];
+			shBin[i] += tBin;
+
+			uint tParticle = shParticle[i - offset];
+			shParticle[i - offset] = shParticle[i];
+			shParticle[i] += tParticle;
+		}
+		barrier();
+	}
+
+	blockBinCountNew[base + 2 * localId] = shBin[2 * localId];
+	blockBinCountNew[base + 2 * localId + 1] = shBin[2 * localId + 1];
+	
+	blockParticleCount[base + 2 * localId] = shParticle[2 * localId];
+	blockParticleCount[base + 2 * localId + 1] = shParticle[2 * localId + 1];
+}

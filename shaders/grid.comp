@@ -3,16 +3,6 @@
 // Tune for subgroup size
 #define BIN_SIZE 32
 
-struct Bin
-{
-	vec4[BIN_SIZE] colors;
-	mat2[BIN_SIZE] F;
-	vec2[BIN_SIZE] position;
-	float[BIN_SIZE] mass;
-	uint[BIN_SIZE] blockIndex;
-	uint particleCount;
-};
-
 layout(binding = 0) uniform ParameterUBO
 {
 	float k;
@@ -40,27 +30,6 @@ layout(std430, binding = 3) buffer GridMassSSBOIn
 	float mGrid[];
 };
 
-layout(std430, binding = 4) writeonly buffer BlockHistogramSSBOClear
-{
-	uint histogram[];
-};
-
-layout (std430, binding = 5) readonly buffer BinSSBOUnused1
-{
-	Bin binsUnused1[];
-};
-
-layout(std430, binding = 6) writeonly buffer BinSSBOUnused2
-{
-	Bin binsUnused2[];
-};
-
-layout(push_constant) uniform PushConstants {
-	uint stride;
-	uint halfStride;
-	uint start;
-} pc;
-
 uint index(uint x, uint y)
 {
 	return x + y * ubo.dimensions;
@@ -81,7 +50,6 @@ void main()
 	// Reset mass for next steps scatter
 	mGrid[i] = 0;
 	vClearGrid[i] = vec2(0);
-	histogram[i] = 0;
 
 	bool left = x <= 2;
 	bool right = x >= ubo.dimensions - 2;

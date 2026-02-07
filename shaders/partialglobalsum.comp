@@ -1,0 +1,112 @@
+#version 450
+
+// Tune for subgroup size
+#define BIN_SIZE 32
+
+layout(binding = 0) uniform ParameterUBO
+{
+	float k;
+	float mu;
+	float rho;
+	float dx;
+	float invDx;
+	uint dimensions;
+	uint blockDimensions;
+	float dt;
+} ubo;
+
+// Size to 256, max grid dimensions = 1024 = 256 * 4
+layout(std430, binding = 9) buffer BlockBinSumSSBOInOut
+{
+	uint blockBinSum[];
+};
+
+// Size to 256, max grid dimensions = 1024 = 256 * 4
+layout(std430, binding = 10) buffer BlockParticleSumSSBOInOut
+{
+	uint blockParticleSum[];
+};
+
+layout(std430, binding = 14) writeonly buffer Indirect
+{
+	uint x;
+	uint y;
+	uint z;
+};
+
+// Works on blocks of 128 * 2, so N / 256 workgroups. This always has 1 workgroup
+#define W 128
+#define W2 W*2
+#define W2m1 W2 - 1
+
+layout(local_size_x = W, local_size_y = 1, local_size_z = 1) in;
+
+shared uint shBin[256];
+shared uint shParticle[256];
+
+void main()
+{
+	uint localId = gl_LocalInvocationID.x;
+
+	shBin[2 * localId] = blockBinSum[2 * localId];
+	shBin[2 * localId + 1] = blockBinSum[2 * localId + 1];
+
+	shParticle[2 * localId] = blockParticleSum[2 * localId];
+	shParticle[2 * localId + 1] = blockParticleSum[2 * localId + 1];
+
+	barrier();
+
+	// Upsweep
+	for (uint offset = 1; offset < W2; offset <<= 1)
+	{
+		uint i = (localId + 1) * offset * 2 - 1;
+		if (i < W2)
+		{
+			shBin[i] += shBin[i - offset];
+			shParticle[i] += shParticle[i - offset];
+		}
+		barrier();
+	}
+
+	// Clear last
+	if (localId == 0)
+	{
+		shBin[W2m1] = 0;
+		shParticle[W2m1] = 0;
+	}
+
+	barrier();
+
+	// Downsweep
+	for (uint offset = W2 >> 1; offset > 0; offset >>= 1)
+	{
+		uint i = (localId + 1) * 2 * offset - 1;
+		if (i < W2)
+		{
+			uint tBin = shBin[i - offset];
+			shBin[i - offset] = shBin[i];
+			shBin[i] += tBin;
+
+			uint tParticle = shParticle[i - offset];
+			shParticle[i - offset] = shParticle[i];
+			shParticle[i] += tParticle;
+		}
+		barrier();
+	}
+
+	if (localId == 0)
+	{
+		// Change 256 based on g2p2g workgroup size
+		uint validSumCount = ubo.blockDimensions * ubo.blockDimensions / 256;
+		uint totalBins = shBin[validSumCount - 1] + blockBinSum[validSumCount - 1];
+		x = (totalBins * BIN_SIZE + 256 - 1) / 256;
+	}
+
+	barrier();
+
+	blockBinSum[2 * localId] = shBin[2 * localId];
+	blockBinSum[2 * localId + 1] = shBin[2 * localId + 1];
+	
+	blockParticleSum[2 * localId] = shParticle[2 * localId];
+	blockParticleSum[2 * localId + 1] = shParticle[2 * localId + 1];
+}
