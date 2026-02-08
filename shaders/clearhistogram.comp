@@ -12,9 +12,9 @@ layout(binding = 0) uniform ParameterUBO
 	float dt;
 } ubo;
 
-layout(std430, binding = 4) buffer BlockHistogramSSBOOld
+layout(std430, binding = 4) buffer BlockHistogramSSBO
 {
-	uint histogramOld[];
+	uint histogram[];
 };
 
 uint blockIndex(uint x, uint y)
@@ -29,5 +29,5 @@ void main()
 	uint x = gl_GlobalInvocationID.x;
     uint y = gl_GlobalInvocationID.y;
     uint i = blockIndex(x, y);
-	histogramOld[i] = 0;
+	histogram[i] = 0;
 }

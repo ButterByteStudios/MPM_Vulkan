@@ -9,7 +9,7 @@ struct Bin
 	vec2[BIN_SIZE] position;
 	float[BIN_SIZE] mass;
 	uint[BIN_SIZE] blockParticleIndex;
-	uint block;
+	uint particleCount;
 };
 
 struct Particle
@@ -30,51 +30,54 @@ layout(binding = 0) uniform ParameterUBO
 	float dt;
 } ubo;
 
-layout(std430, binding = 4) buffer BlockHistogramSSBOOld
+layout(std430, binding = 4) readonly buffer BlockHistogramSSBO
 {
-	uint histogramOld[];
+	uint histogram[];
 };
 
-layout(std430, binding = 6) readonly buffer BlockBinOffsetsSSBOOld
+layout(std430, binding = 5) readonly buffer BlockBinOffsetsSSBOIn
 {
-    uint binOffsetsOld[];
+    uint binOffsets[];
 };
 
-layout(std430, binding = 7) readonly buffer BlockBinOffsetsSSBONew
-{
-    uint binOffsetsNew[];
-};
-
-layout(std430, binding = 8) readonly buffer BlockParticleOffsetsSSBOIn
+layout(std430, binding = 6) readonly buffer BlockParticleOffsetsSSBOIn
 {
     uint particleOffsets[];
 };
 
 // Size to 256, max grid dimensions = 1024 = 256 * 4
-layout(std430, binding = 9) buffer BlockBinSumSSBOInOut
+layout(std430, binding = 7) buffer BlockBinSumSSBOInOut
 {
 	uint blockBinSum[];
 };
 
 // Size to 256, max grid dimensions = 1024 = 256 * 4
-layout(std430, binding = 10) buffer BlockParticleSumSSBOInOut
+layout(std430, binding = 8) buffer BlockParticleSumSSBOInOut
 {
 	uint blockParticleSum[];
 };
 
-layout(std430, binding = 11) readonly buffer BinSSBOIn
+layout(std430, binding = 9) readonly buffer BinSSBOIn
 {
 	Bin binsIn[];
 };
 
-layout(std430, binding = 12) writeonly buffer BinSSBOOut
+layout(std430, binding = 10) writeonly buffer BinSSBOOut
 {
 	Bin binsOut[];
 };
 
-layout(std430, binding = 13) buffer ParticleSSBOOut
+layout(std430, binding = 11) buffer ParticleSSBOOut
 {
 	Particle particlesOut[];
+};
+
+layout(std430, binding = 12) readonly buffer IndirectIn
+{
+	uint dispatchX;
+	uint dispatchY;
+	uint dispatchZ;
+	uint totalBins;
 };
 
 uint blockIndex(uint x, uint y)
@@ -82,55 +85,46 @@ uint blockIndex(uint x, uint y)
 	return x + y * ubo.blockDimensions;
 }
 
-// Change to 2d layout to prevent modulo?
-layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+layout(local_size_x = 8, local_size_y = BIN_SIZE, local_size_z = 1) in;
 
 void main()
 {
-	uint globalIndex = gl_GlobalInvocationID.x;
-	uint workgroupIndex = gl_WorkGroupID.x;
-	uint localIndex = gl_LocalInvocationID.x;
-
-	uint bIndex = globalIndex / BIN_SIZE;
-	uint currentPIndex = globalIndex - bIndex * BIN_SIZE;
-
-	uint block = binsIn[bIndex].block;
-	uint baseBin = binOffsetsOld[block];
-	uint blockBin = bIndex - baseBin;
-
-	uint blockParticleCount = histogramOld[block];
-
-	uint blockBinCount = (blockParticleCount + BIN_SIZE - 1) / BIN_SIZE;
-
-	uint binParticleCount = BIN_SIZE;
-	if (blockBin == blockBinCount - 1)
+	uint bIndex = gl_GlobalInvocationID.x;
+	if (bIndex >= totalBins)
 	{
-		binParticleCount = blockParticleCount - (blockBinCount - 1) * BIN_SIZE;
-		if (currentPIndex >= binParticleCount)
-		{
-			return;
-		}
+		return;
+	}
+
+	uint currentPIndex = gl_LocalInvocationID.y;
+	uint binParticleCount = binsIn[bIndex].particleCount;
+	if (currentPIndex >= binParticleCount)
+	{
+		return;
 	}
 
 	vec2 pPos = binsIn[bIndex].position[currentPIndex];
-	ivec2 blockCoords = ivec2(floor(pPos * ubo.invDx - 0.5)) / 4;
-	uint nextBlock = blockIndex(blockCoords.x, blockCoords.y);
+	ivec2 blockCoords = ivec2(floor(pPos * ubo.invDx + 0.5)) / 4;
+	uint block = blockIndex(blockCoords.x, blockCoords.y);
 
 	uint blockParticleIndex = binsIn[bIndex].blockParticleIndex[currentPIndex];
 
-	uint binOffset = blockParticleIndex / BIN_SIZE;
-	uint nextPIndex = blockParticleIndex - binOffset * BIN_SIZE;
-	uint nextBaseBin = binOffsetsNew[nextBlock];
-	uint nextBIndex = nextBaseBin + binOffset;
+	uint binInBlock = blockParticleIndex / BIN_SIZE;
+	uint particleInBlock = binInBlock * BIN_SIZE;
+	uint nextPIndex = blockParticleIndex - particleInBlock;
+	uint nextBaseBin = binOffsets[block];
+	uint nextBIndex = nextBaseBin + binInBlock;
 
 	binsOut[nextBIndex].F[nextPIndex] = binsIn[bIndex].F[currentPIndex];
 	binsOut[nextBIndex].position[nextPIndex] = pPos;
 	binsOut[nextBIndex].mass[nextPIndex] = binsIn[bIndex].mass[currentPIndex];
 
-	binsOut[nextBIndex].block = nextBlock;
-
-	uint graphicsPIndex = particleOffsets[nextBlock] + blockParticleIndex;
+	if (nextPIndex == 0)
+	{
+		uint blockParticleCount = histogram[block];
+		uint particlesLeft = min(blockParticleCount - particleInBlock, BIN_SIZE);
+		binsOut[nextBIndex].particleCount = particlesLeft;
+	}
+	
+	uint graphicsPIndex = particleOffsets[block] + blockParticleIndex;
 	particlesOut[graphicsPIndex].position = binsIn[bIndex].position[currentPIndex];
-
-	// Replace block for a particlecount again, then at the end of scattering let nextpindex == 1 derive the new size and write it to the bin
 }

@@ -16,22 +16,23 @@ layout(binding = 0) uniform ParameterUBO
 } ubo;
 
 // Size to 256, max grid dimensions = 1024 = 256 * 4
-layout(std430, binding = 9) buffer BlockBinSumSSBOInOut
+layout(std430, binding = 7) buffer LocalBinSumSSBOInOut
 {
-	uint blockBinSum[];
+	uint localBinSum[];
 };
 
 // Size to 256, max grid dimensions = 1024 = 256 * 4
-layout(std430, binding = 10) buffer BlockParticleSumSSBOInOut
+layout(std430, binding = 8) buffer LocalParticleSumSSBOInOut
 {
-	uint blockParticleSum[];
+	uint localParticleSum[];
 };
 
-layout(std430, binding = 14) writeonly buffer Indirect
+layout(std430, binding = 13) writeonly buffer IndirectOut
 {
-	uint x;
-	uint y;
-	uint z;
+	uint dispatchX;
+	uint dispatchY;
+	uint dispatchZ;
+	uint totalBins;
 };
 
 // Works on blocks of 128 * 2, so N / 256 workgroups. This always has 1 workgroup
@@ -41,18 +42,18 @@ layout(std430, binding = 14) writeonly buffer Indirect
 
 layout(local_size_x = W, local_size_y = 1, local_size_z = 1) in;
 
-shared uint shBin[256];
-shared uint shParticle[256];
+shared uint shBin[W2];
+shared uint shParticle[W2];
 
 void main()
 {
 	uint localId = gl_LocalInvocationID.x;
 
-	shBin[2 * localId] = blockBinSum[2 * localId];
-	shBin[2 * localId + 1] = blockBinSum[2 * localId + 1];
+	shBin[2 * localId] = localBinSum[2 * localId];
+	shBin[2 * localId + 1] = localBinSum[2 * localId + 1];
 
-	shParticle[2 * localId] = blockParticleSum[2 * localId];
-	shParticle[2 * localId + 1] = blockParticleSum[2 * localId + 1];
+	shParticle[2 * localId] = localParticleSum[2 * localId];
+	shParticle[2 * localId + 1] = localParticleSum[2 * localId + 1];
 
 	barrier();
 
@@ -96,17 +97,18 @@ void main()
 
 	if (localId == 0)
 	{
-		// Change 256 based on g2p2g workgroup size
+		// Change 256 based on localSum workgroup size
 		uint validSumCount = ubo.blockDimensions * ubo.blockDimensions / 256;
-		uint totalBins = shBin[validSumCount - 1] + blockBinSum[validSumCount - 1];
-		x = (totalBins * BIN_SIZE + 256 - 1) / 256;
+		uint usedBins = shBin[validSumCount - 1] + localBinSum[validSumCount - 1];
+		dispatchX = (usedBins + 8 - 1) / 8;
+		totalBins = usedBins;
 	}
 
 	barrier();
 
-	blockBinSum[2 * localId] = shBin[2 * localId];
-	blockBinSum[2 * localId + 1] = shBin[2 * localId + 1];
+	localBinSum[2 * localId] = shBin[2 * localId];
+	localBinSum[2 * localId + 1] = shBin[2 * localId + 1];
 	
-	blockParticleSum[2 * localId] = shParticle[2 * localId];
-	blockParticleSum[2 * localId + 1] = shParticle[2 * localId + 1];
+	localParticleSum[2 * localId] = shParticle[2 * localId];
+	localParticleSum[2 * localId + 1] = shParticle[2 * localId + 1];
 }
