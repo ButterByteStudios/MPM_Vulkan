@@ -30,8 +30,7 @@ const int MAX_FRAMES_IN_FLIGHT = 2;
 const int PARTICLE_COUNT = 1 << 19;
 const int BIN_KERNEL_SIZE = 8;
 const int GRID_KERNEL_SIZE = 32;
-const int BLOCK_KERNEL_SIZE = 32;
-const int SUM_KERNEL_SIZE = 256;
+const int BLOCK_KERNEL_SIZE = 256;
 const int BIN_SIZE = 32;
 
 const std::vector<const char*> validationLayers =
@@ -273,11 +272,13 @@ private:
 	std::vector<VkDeviceMemory> uniformBuffersMemory;
 	std::vector<void*> uniformBuffersMapped;
 
-	uint32_t dimensions = 1 << 7; // Max: 1024. Min: 64
-	uint32_t blockDimensions = dimensions / 4;
-	uint32_t binCount = blockDimensions * blockDimensions + PARTICLE_COUNT / BIN_SIZE + 1; // Impossibly worst case scenario. Every bin is full and all blocks have one non-full bin
-	float E = 10000;
-	float v = 0.49;
+	uint32_t dimensions = 1 << 7; // Max: 32748. Min: 128. Determined by SUM_KERNEL_SIZE (the block kernels need to atleast have one filled workgroup and max 256 filled workgroups (determined by the localsum workgroupsize))
+	uint32_t gridBlockDimensions = dimensions / 4;
+	uint32_t particleBlockDimensions = gridBlockDimensions - 1; // The actual block dimensions are gridblockdimensions-1 due to the off by 2 mapping. This is just padding
+	uint32_t paddedParticleBlockCount = ((particleBlockDimensions * particleBlockDimensions + BLOCK_KERNEL_SIZE - 1) / BLOCK_KERNEL_SIZE) * BLOCK_KERNEL_SIZE;
+	uint32_t binCount = particleBlockDimensions * particleBlockDimensions + PARTICLE_COUNT / BIN_SIZE + 1; // Impossibly worst case scenario. Every bin is full and all blocks have one non-full bin
+	float E = 1000000;
+	float v = 0.40;
 	float rho = 100;
 	float dx = 1.0f;
 	float dt = 0.005f;
@@ -493,7 +494,7 @@ private:
 		ubo.dx = dx;
 		ubo.invDx = 1.0f / dx;
 		ubo.dimensions = dimensions;
-		ubo.blockDimensions = blockDimensions;
+		ubo.blockDimensions = particleBlockDimensions;
 		ubo.dt = dt;
 
 		memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
@@ -1072,7 +1073,7 @@ private:
 			VkDescriptorBufferInfo histogramBufferInfo{};
 			histogramBufferInfo.buffer = histogramBuffer;
 			histogramBufferInfo.offset = 0;
-			histogramBufferInfo.range = sizeof(uint32_t) * blockDimensions * blockDimensions;
+			histogramBufferInfo.range = sizeof(uint32_t) * paddedParticleBlockCount;
 
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			descriptorWrites[binding].dstSet = computeDescriptorSets[i];
@@ -1086,7 +1087,7 @@ private:
 			VkDescriptorBufferInfo binIndexBufferInfo{};
 			binIndexBufferInfo.buffer = binIndexBuffer;
 			binIndexBufferInfo.offset = 0;
-			binIndexBufferInfo.range = sizeof(uint32_t) * blockDimensions * blockDimensions;
+			binIndexBufferInfo.range = sizeof(uint32_t) * paddedParticleBlockCount;
 
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			descriptorWrites[binding].dstSet = computeDescriptorSets[i];
@@ -1100,7 +1101,7 @@ private:
 			VkDescriptorBufferInfo particleIndexBufferInfo{};
 			particleIndexBufferInfo.buffer = particleIndexBuffer;
 			particleIndexBufferInfo.offset = 0;
-			particleIndexBufferInfo.range = sizeof(uint32_t) * blockDimensions * blockDimensions;
+			particleIndexBufferInfo.range = sizeof(uint32_t) * paddedParticleBlockCount;
 
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			descriptorWrites[binding].dstSet = computeDescriptorSets[i];
@@ -1114,7 +1115,7 @@ private:
 			VkDescriptorBufferInfo binSumBufferInfo{};
 			binSumBufferInfo.buffer = binSumBuffer;
 			binSumBufferInfo.offset = 0;
-			binSumBufferInfo.range = sizeof(uint32_t) * SUM_KERNEL_SIZE;
+			binSumBufferInfo.range = sizeof(uint32_t) * BLOCK_KERNEL_SIZE;
 
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			descriptorWrites[binding].dstSet = computeDescriptorSets[i];
@@ -1128,7 +1129,7 @@ private:
 			VkDescriptorBufferInfo particleSumBufferInfo{};
 			particleSumBufferInfo.buffer = particleSumBuffer;
 			particleSumBufferInfo.offset = 0;
-			particleSumBufferInfo.range = sizeof(uint32_t) * SUM_KERNEL_SIZE;
+			particleSumBufferInfo.range = sizeof(uint32_t) * BLOCK_KERNEL_SIZE;
 
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			descriptorWrites[binding].dstSet = computeDescriptorSets[i];
@@ -1477,7 +1478,7 @@ private:
 		); 
 
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, processhistogramComputePipeline);
-		vkCmdDispatch(commandBuffer, blockDimensions / BLOCK_KERNEL_SIZE, blockDimensions / BLOCK_KERNEL_SIZE, 1);
+		vkCmdDispatch(commandBuffer, paddedParticleBlockCount / BLOCK_KERNEL_SIZE, 1, 1);
 
 		vkCmdPipelineBarrier(commandBuffer,
 			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -1490,7 +1491,7 @@ private:
 
 		// Look into https://research.nvidia.com/publication/2016-03_single-pass-parallel-prefix-scan-decoupled-look-back
 			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, localsumComputePipeline);
-			vkCmdDispatch(commandBuffer, blockDimensions * blockDimensions / SUM_KERNEL_SIZE, 1, 1);
+			vkCmdDispatch(commandBuffer, paddedParticleBlockCount / BLOCK_KERNEL_SIZE , 1, 1);
 
 			vkCmdPipelineBarrier(commandBuffer,
 				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -1514,7 +1515,7 @@ private:
 			);
 
 			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, globalsumComputePipeline);
-			vkCmdDispatch(commandBuffer, blockDimensions * blockDimensions / SUM_KERNEL_SIZE, 1, 1);
+			vkCmdDispatch(commandBuffer, paddedParticleBlockCount / BLOCK_KERNEL_SIZE, 1, 1);
 			
 			vkCmdPipelineBarrier(commandBuffer,
 				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -1539,7 +1540,7 @@ private:
 		);
 
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, clearhistogramComputePipeline);
-		vkCmdDispatch(commandBuffer, blockDimensions / BLOCK_KERNEL_SIZE, blockDimensions / BLOCK_KERNEL_SIZE, 1);
+		vkCmdDispatch(commandBuffer, paddedParticleBlockCount / BLOCK_KERNEL_SIZE, 1, 1);
 		
 		vkCmdPipelineBarrier(commandBuffer,
 			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -1550,6 +1551,7 @@ private:
 			0, nullptr
 		);
 
+		// Theres no dependency between particle reordering and grid so change the positioning
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, gridComputePipeline);
 		vkCmdDispatch(commandBuffer, dimensions / GRID_KERNEL_SIZE, dimensions / GRID_KERNEL_SIZE, 1);
 
@@ -1668,11 +1670,11 @@ private:
 		std::default_random_engine rndEngine((unsigned)2u);
 		std::uniform_real_distribution<float> rndDist(0.0f, 1.0f);
 
-		uint32_t blocks = blockDimensions * blockDimensions;
 		uint32_t cells = dimensions * dimensions;
 
-		std::vector<uint32_t> histogram(blocks);
+		std::vector<uint32_t> histogram(paddedParticleBlockCount);
 		std::vector<Particle> particles(PARTICLE_COUNT);
+		std::vector<uint32_t> blockIndices(PARTICLE_COUNT);
 		std::vector<uint32_t> blockPIndex(PARTICLE_COUNT);
 		for (size_t i = 0; i < PARTICLE_COUNT; i++)
 		{
@@ -1686,33 +1688,30 @@ private:
 
 			glm::vec2 cellPos = glm::vec2(x, y);
 			glm::vec2 pos = cellPos * dx;
-			glm::ivec2 coords = glm::ivec2(glm::floor(cellPos - 0.5f));
+			glm::ivec2 coords = glm::ivec2(glm::floor(cellPos - 1.5f));
 			glm::ivec2 blockCoords = coords / 4;
-			uint32_t blockIndex = blockCoords.x + blockCoords.y * blockDimensions;
+			uint32_t blockIndex = blockCoords.x + blockCoords.y * particleBlockDimensions;
 
+			blockIndices[i] = blockIndex;
 			blockPIndex[i] = histogram[blockIndex]++;
 			particles[i].position = pos;
 			particles[i].color = glm::vec4(rndDist(rndEngine), rndDist(rndEngine), rndDist(rndEngine), 1.0f);
 		}
 
-		std::vector<uint32_t> binOffsets(blocks);
-		for (size_t i = 1; i < blocks; i++)
+		std::vector<uint32_t> binOffsets(paddedParticleBlockCount);
+		for (size_t i = 1; i < paddedParticleBlockCount; i++)
 		{
 			uint32_t binCount = ceilIntDivision(histogram[i - 1], BIN_SIZE);
 			binOffsets[i] = binCount + binOffsets[i - 1];
 
 		}
-		uint32_t totalUsedBins = binOffsets[blocks - 1] + ceilIntDivision(histogram[blocks - 1], BIN_SIZE);
+		uint32_t totalUsedBins = binOffsets[paddedParticleBlockCount - 1] + ceilIntDivision(histogram[paddedParticleBlockCount - 1], BIN_SIZE);
 
 		std::vector<Bin> bins(binCount);
 		for (size_t i = 0; i < PARTICLE_COUNT; i++)
 		{
 			glm::vec2 pos = particles[i].position;
-			glm::vec2 cellPos = pos / dx;
-			glm::ivec2 coords = glm::ivec2(glm::floor(cellPos - 0.5f));
-			glm::ivec2 blockCoords = coords / 4;
-			uint32_t blockIndex = blockCoords.x + blockCoords.y * blockDimensions;
-
+			uint32_t blockIndex = blockIndices[i];
 			uint32_t baseBin = binOffsets[blockIndex];
 			uint32_t binIndex = baseBin + blockPIndex[i] / BIN_SIZE;
 			uint32_t pIndex = blockPIndex[i] % BIN_SIZE;
@@ -1784,8 +1783,8 @@ private:
 		//
 
 		// Histogram
-		std::vector<uint32_t> h(blocks);
-		bufferSize = sizeof(uint32_t) * blocks;
+		std::vector<uint32_t> h(paddedParticleBlockCount);
+		bufferSize = sizeof(uint32_t) * paddedParticleBlockCount;
 		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
 
 		vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
@@ -1805,8 +1804,8 @@ private:
 		//
 		
 		// local sums
-		std::vector<uint32_t> emptySums(SUM_KERNEL_SIZE);
-		bufferSize = sizeof(uint32_t) * SUM_KERNEL_SIZE;
+		std::vector<uint32_t> emptySums(BLOCK_KERNEL_SIZE);
+		bufferSize = sizeof(uint32_t) * BLOCK_KERNEL_SIZE;
 		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
 
 		vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);

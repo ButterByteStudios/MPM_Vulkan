@@ -77,6 +77,22 @@ float qw2(float x)
 	return 0.5 * xp * xp;
 }
 
+uint part1by1(uint x)
+{
+	x = (x | (x << 8)) & 0x00FF00FF;
+	x = (x | (x << 4)) & 0x0F0F0F0F;
+	x = (x | (x << 2)) & 0x33333333;
+	x = (x | (x << 1)) & 0x55555555;
+	return x;
+}
+
+uint partialMorton(uint x, uint y)
+{
+	uint perserve = (((x & 0x3) << 2) | (y & 0x3));
+	
+	return (((part1by1(x) << 1) | part1by1(y)) & 0xFFFFFFF0) | perserve;
+}
+
 uint index(uint x, uint y)
 {
 	return x + y * ubo.dimensions;
@@ -182,7 +198,8 @@ void main()
 
 	float mass = bins[binIndex].mass[pIndex];
 
-	position = clamp((position + ubo.dt * v) * ubo.invDx, vec2(1), vec2(ubo.dimensions - 1)) * ubo.dx;
+	// 2 outer node halos are off limits so particles stay in particle block territory
+	position = clamp(position + ubo.dt * v, 2 * ubo.dx, (ubo.dimensions - 2) * ubo.dx);
 
 	bins[binIndex].F[pIndex] = F;
 	bins[binIndex].position[pIndex] = position;
@@ -290,7 +307,7 @@ void main()
 	atomicAdd(mGrid[index(coords.x + 1, coords.y + 2)], mass * w12);
 	atomicAdd(mGrid[index(coords.x + 2, coords.y + 2)], mass * w22);
 
-	ivec2 blockCoords = ivec2(floor(cellPosition + 0.5)) / 4;
+	ivec2 blockCoords = (coords - 1) / 4;
 	uint bIndex = atomicAdd(histogram[blockIndex(blockCoords.x, blockCoords.y)], 1);
 	bins[binIndex].blockParticleIndex[pIndex] = bIndex;
 }

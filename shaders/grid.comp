@@ -51,10 +51,11 @@ void main()
 	mGrid[i] = 0;
 	vClearGrid[i] = vec2(0);
 
-	bool left = x <= 2;
-	bool right = x >= ubo.dimensions - 2;
-	bool down = y <= 2;
-	bool up = y >= ubo.dimensions - 2;
+	// 3 outer node halos are boundaries so particles stay in particle block territory
+	bool left = x <= 3;
+	bool right = x >= ubo.dimensions - 3;
+	bool down = y <= 3;
+	bool up = y >= ubo.dimensions - 3;
 
 	if (m == 0 || left || right || down || up)
 	{

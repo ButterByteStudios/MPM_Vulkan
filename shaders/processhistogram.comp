@@ -30,19 +30,12 @@ layout(std430, binding = 6) writeonly buffer BlockParticleCountSSBOOut
     uint blockParticleCount[];
 };
 
-uint blockIndex(uint x, uint y)
-{
-	return x + y * ubo.blockDimensions;
-}
-
 // This is for blocks, so maybe reduce thread size
-layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 void main()
 {
-    uint x = gl_GlobalInvocationID.x;
-    uint y = gl_GlobalInvocationID.y;
-    uint i = blockIndex(x, y);
+    uint i = gl_GlobalInvocationID.x;
 
     uint particleCount = histogram[i];
     uint binCount = (particleCount + BIN_SIZE - 1) / BIN_SIZE;

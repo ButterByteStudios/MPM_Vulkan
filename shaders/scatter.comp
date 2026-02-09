@@ -103,7 +103,9 @@ void main()
 	}
 
 	vec2 pPos = binsIn[bIndex].position[currentPIndex];
-	ivec2 blockCoords = ivec2(floor(pPos * ubo.invDx + 0.5)) / 4;
+	
+	// Find block index from pos = (floor(cellpos + 0.5) - 2) / 4
+	ivec2 blockCoords = ivec2(floor(pPos * ubo.invDx - 1.5)) / 4;
 	uint block = blockIndex(blockCoords.x, blockCoords.y);
 
 	uint blockParticleIndex = binsIn[bIndex].blockParticleIndex[currentPIndex];
