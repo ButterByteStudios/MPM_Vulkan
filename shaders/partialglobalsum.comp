@@ -16,23 +16,35 @@ layout(binding = 0) uniform ParameterUBO
 } ubo;
 
 // Size to 256, max grid dimensions = 1024 = 256 * 4
-layout(std430, binding = 7) buffer LocalBinSumSSBOInOut
+layout(std430, binding = 10) buffer LocalBinSumSSBOInOut
 {
 	uint localBinSum[];
 };
 
+layout(std430, binding = 11) buffer LocalWorkgroupSumSSBOInOut
+{
+	uint localWorkgroupSum[];
+};
+
 // Size to 256, max grid dimensions = 1024 = 256 * 4
-layout(std430, binding = 8) buffer LocalParticleSumSSBOInOut
+layout(std430, binding = 12) buffer LocalParticleSumSSBOInOut
 {
 	uint localParticleSum[];
 };
 
-layout(std430, binding = 13) writeonly buffer IndirectOut
+layout(std430, binding = 18) writeonly buffer ScatterIndirectOut
 {
-	uint dispatchX;
-	uint dispatchY;
-	uint dispatchZ;
+	uint scatterX;
+	uint scatterY;
+	uint scatterZ;
 	uint totalBins;
+};
+
+layout(std430, binding = 19) writeonly buffer G2P2GIndirectOut
+{
+	uint g2p2gX;
+	uint g2p2gY;
+	uint g2p2gZ;
 };
 
 // Works on blocks of 128 * 2, so N / 256 workgroups. This always has 1 workgroup
@@ -43,6 +55,7 @@ layout(std430, binding = 13) writeonly buffer IndirectOut
 layout(local_size_x = W, local_size_y = 1, local_size_z = 1) in;
 
 shared uint shBin[W2];
+shared uint shWork[W2];
 shared uint shParticle[W2];
 
 void main()
@@ -51,6 +64,9 @@ void main()
 
 	shBin[2 * localId] = localBinSum[2 * localId];
 	shBin[2 * localId + 1] = localBinSum[2 * localId + 1];
+
+	shWork[2 * localId] = localWorkgroupSum[2 * localId];
+	shWork[2 * localId + 1] = localWorkgroupSum[2 * localId + 1];
 
 	shParticle[2 * localId] = localParticleSum[2 * localId];
 	shParticle[2 * localId + 1] = localParticleSum[2 * localId + 1];
@@ -64,6 +80,7 @@ void main()
 		if (i < W2)
 		{
 			shBin[i] += shBin[i - offset];
+			shWork[i] += shWork[i - offset];
 			shParticle[i] += shParticle[i - offset];
 		}
 		barrier();
@@ -73,6 +90,7 @@ void main()
 	if (localId == 0)
 	{
 		shBin[W2m1] = 0;
+		shWork[W2m1] = 0;
 		shParticle[W2m1] = 0;
 	}
 
@@ -88,6 +106,10 @@ void main()
 			shBin[i - offset] = shBin[i];
 			shBin[i] += tBin;
 
+			uint tWork = shWork[i - offset];
+			shWork[i - offset] = shWork[i];
+			shWork[i] += tWork;
+
 			uint tParticle = shParticle[i - offset];
 			shParticle[i - offset] = shParticle[i];
 			shParticle[i] += tParticle;
@@ -100,14 +122,19 @@ void main()
 		// Change 256 based on localSum workgroup size
 		uint validSumCount = ubo.blockDimensions * ubo.blockDimensions / 256;
 		uint usedBins = shBin[validSumCount - 1] + localBinSum[validSumCount - 1];
-		dispatchX = (usedBins + 8 - 1) / 8;
+		scatterX = (usedBins + 8 - 1) / 8;
 		totalBins = usedBins;
-	}
 
-	barrier();
+		// Calculate totalWorkgroups as well
+		uint usedWorkgroups = shWork[validSumCount - 1] + localWorkgroupSum[validSumCount - 1];
+		g2p2gX = usedWorkgroups;
+	}
 
 	localBinSum[2 * localId] = shBin[2 * localId];
 	localBinSum[2 * localId + 1] = shBin[2 * localId + 1];
+
+	localWorkgroupSum[2 * localId] = shWork[2 * localId];
+	localWorkgroupSum[2 * localId + 1] = shWork[2 * localId + 1];
 	
 	localParticleSum[2 * localId] = shParticle[2 * localId];
 	localParticleSum[2 * localId + 1] = shParticle[2 * localId + 1];

@@ -1,5 +1,14 @@
 #version 450
 
+#define BIN_COUNT 8
+
+struct WorkgroupInfo
+{
+	uint block;
+	uint firstBinIndex;
+	uint binCount;
+};
+
 layout(binding = 0) uniform ParameterUBO
 {
 	float k;
@@ -17,9 +26,53 @@ layout(std430, binding = 4) buffer BlockHistogramSSBO
 	uint histogram[];
 };
 
+layout(std430, binding = 5) readonly buffer BlockBinCountSSBO
+{
+	uint blockBinCount[];
+};
+
+layout(std430, binding = 6) readonly buffer BlockWorkgroupCountSSBO
+{
+	uint blockWorkgroupCount[];
+};
+
+layout(std430, binding = 7) readonly buffer BlockBinOffsetsSSBOIn
+{
+    uint binOffsets[];
+};
+
+layout(std430, binding = 8) readonly buffer BlockWorkgroupOffsetsSSBOOut
+{
+	uint blockWorkgroupOffsets[];
+};
+
+layout(std430, binding = 16) writeonly buffer WorkgroupDataOut
+{
+	WorkgroupInfo workgroupData[];
+};
+
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 void main()
 {
-	histogram[gl_GlobalInvocationID.x] = 0;
+	uint block = gl_GlobalInvocationID.x;
+	histogram[block] = 0;
+
+	uint binCount = blockBinCount[block];
+	if (binCount == 0)
+	{
+		return;
+	}
+
+	uint baseBin = binOffsets[block];
+	uint baseWorkgroup = blockWorkgroupOffsets[block];
+	uint workgroupCount = blockWorkgroupCount[block];
+	for (uint i = 0; i < workgroupCount; i++)
+	{
+		uint workgroupIndex = baseWorkgroup + i;
+		uint binOffset = i * BIN_COUNT;
+		workgroupData[workgroupIndex].block = block;
+		workgroupData[workgroupIndex].firstBinIndex = baseBin + binOffset;
+		workgroupData[workgroupIndex].binCount = min(binCount - binOffset, BIN_COUNT);
+	}
 }

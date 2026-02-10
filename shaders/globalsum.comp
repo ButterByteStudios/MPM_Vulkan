@@ -3,22 +3,32 @@
 // Tune for subgroup size
 #define BIN_SIZE 32
 
-layout(std430, binding = 5) writeonly buffer BlockBinOffsetsSSBOOut
+layout(std430, binding = 7) writeonly buffer BlockBinOffsetsSSBOOut
 {
     uint blockBinOffsets[];
 };
 
-layout(std430, binding = 6) writeonly buffer BlockParticleOffsetsSSBOOut
+layout(std430, binding = 8) writeonly buffer BlockWorkgroupOffsetsSSBOOut
+{
+    uint blockWorkgroupOffsets[];
+};
+
+layout(std430, binding = 9) writeonly buffer BlockParticleOffsetsSSBOOut
 {
     uint blockParticleOffsets[];
 };
 
-layout(std430, binding = 7) readonly buffer LocalBinSumOffsetsSSBOIn
+layout(std430, binding = 10) readonly buffer LocalBinSumOffsetsSSBOIn
 {
 	uint localBinSumOffsets[];
 };
 
-layout(std430, binding = 8) readonly buffer LocalParticleSumOffsetsSSBOIn
+layout(std430, binding = 11) readonly buffer LocalWorkgroupSumOffsetsSSBOIn
+{
+	uint localWorkgroupSumOffsets[];
+};
+
+layout(std430, binding = 12) readonly buffer LocalParticleSumOffsetsSSBOIn
 {
 	uint localParticleSumOffsets[];
 };
@@ -26,6 +36,7 @@ layout(std430, binding = 8) readonly buffer LocalParticleSumOffsetsSSBOIn
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 shared uint binSum;
+shared uint workSum;
 shared uint particleSum;
 
 void main()
@@ -39,10 +50,12 @@ void main()
 	if (localId == 0)
 	{
 		binSum = localBinSumOffsets[block];
+		workSum = localWorkgroupSumOffsets[block];
 		particleSum = localParticleSumOffsets[block];
 	}
 	barrier();
 
 	blockBinOffsets[base + localId] += binSum;
+	blockWorkgroupOffsets[base + localId] += workSum;
 	blockParticleOffsets[base + localId] += particleSum;
 }

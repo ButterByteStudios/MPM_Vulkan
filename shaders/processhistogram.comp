@@ -2,6 +2,7 @@
 
 // Tune for subgroup size
 #define BIN_SIZE 32
+#define BIN_COUNT 8
 
 layout(binding = 0) uniform ParameterUBO
 {
@@ -20,14 +21,29 @@ layout(std430, binding = 4) readonly buffer BlockHistogramSSBO
 	uint histogram[];
 };
 
-layout(std430, binding = 5) writeonly buffer BlockBinCountSSBO
+layout(std430, binding = 5) writeonly buffer BlockBinCountSSBOOut
 {
-    uint blockBinCount[];
+	uint blockBinCount[];
 };
 
-layout(std430, binding = 6) writeonly buffer BlockParticleCountSSBOOut
+layout(std430, binding = 6) writeonly buffer BlockWorkgroupCountSSBOOut
 {
-    uint blockParticleCount[];
+	uint blockWorkgroupCount[];
+};
+
+layout(std430, binding = 7) writeonly buffer BlockBinOffsetsSSBOOut
+{
+    uint blockBinOffsets[];
+};
+
+layout(std430, binding = 8) writeonly buffer BlockWorkgroupOffsetsSSBOOut
+{
+	uint blockWorkgroupOffsets[];
+};
+
+layout(std430, binding = 9) writeonly buffer BlockParticleCountSSBOOut
+{
+    uint blockParticleOffsets[];
 };
 
 // This is for blocks, so maybe reduce thread size
@@ -39,6 +55,10 @@ void main()
 
     uint particleCount = histogram[i];
     uint binCount = (particleCount + BIN_SIZE - 1) / BIN_SIZE;
+	uint workgroupCount = (binCount + BIN_COUNT - 1) / BIN_COUNT;
     blockBinCount[i] = binCount;
-	blockParticleCount[i] = particleCount;
+	blockBinOffsets[i] = binCount;
+	blockWorkgroupCount[i] = workgroupCount;
+	blockWorkgroupOffsets[i] = workgroupCount;
+	blockParticleOffsets[i] = particleCount;
 }

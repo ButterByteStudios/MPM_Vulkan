@@ -14,6 +14,13 @@ struct Bin
 	uint particleCount;
 };
 
+struct WorkgroupInfo
+{
+	uint block;
+	uint firstBinIndex;
+	uint binCount;
+};
+
 layout(binding = 0) uniform ParameterUBO
 {
 	float k;
@@ -46,17 +53,14 @@ layout(std430, binding = 4) writeonly buffer BlockHistogramSSBOOut
 	uint histogram[];
 };
 
-layout(std430, binding = 9) buffer BinSSBOInOut
+layout(std430, binding = 13) buffer BinSSBOInOut
 {
 	Bin bins[];
 };
 
-layout(std430, binding = 12) readonly buffer IndirectIn
+layout(std430, binding = 16) readonly buffer WorkgroupInfoIn
 {
-	uint dispatchX;
-	uint dispatchY;
-	uint dispatchZ;
-	uint totalBins;
+	WorkgroupInfo workgroupInfos[];
 };
 
 float qw0(float x)
@@ -107,12 +111,13 @@ layout(local_size_x = 8, local_size_y = BIN_SIZE, local_size_z = 1) in;
 
 void main()
 {
-	uint binIndex = gl_GlobalInvocationID.x;
-	if (binIndex >= totalBins)
+	uint binInWorkgroup = gl_LocalInvocationID.x;
+	if (binInWorkgroup >= workgroupInfos[gl_WorkGroupID.x].binCount)
 	{
 		return;
 	}
 
+	uint binIndex = workgroupInfos[gl_WorkGroupID.x].firstBinIndex + binInWorkgroup;
 	uint pIndex = gl_LocalInvocationID.y;
 	uint binParticleCount = bins[binIndex].particleCount;
 	if (pIndex >= binParticleCount)

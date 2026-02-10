@@ -35,48 +35,36 @@ layout(std430, binding = 4) readonly buffer BlockHistogramSSBO
 	uint histogram[];
 };
 
-layout(std430, binding = 5) readonly buffer BlockBinOffsetsSSBOIn
+layout(std430, binding = 7) readonly buffer BlockBinOffsetsSSBOIn
 {
     uint binOffsets[];
 };
 
-layout(std430, binding = 6) readonly buffer BlockParticleOffsetsSSBOIn
+layout(std430, binding = 9) readonly buffer BlockParticleOffsetsSSBOIn
 {
     uint particleOffsets[];
 };
 
-// Size to 256, max grid dimensions = 1024 = 256 * 4
-layout(std430, binding = 7) buffer BlockBinSumSSBOInOut
-{
-	uint blockBinSum[];
-};
-
-// Size to 256, max grid dimensions = 1024 = 256 * 4
-layout(std430, binding = 8) buffer BlockParticleSumSSBOInOut
-{
-	uint blockParticleSum[];
-};
-
-layout(std430, binding = 9) readonly buffer BinSSBOIn
+layout(std430, binding = 13) readonly buffer BinSSBOIn
 {
 	Bin binsIn[];
 };
 
-layout(std430, binding = 10) writeonly buffer BinSSBOOut
+layout(std430, binding = 14) writeonly buffer BinSSBOOut
 {
 	Bin binsOut[];
 };
 
-layout(std430, binding = 11) buffer ParticleSSBOOut
+layout(std430, binding = 15) buffer ParticleSSBOOut
 {
 	Particle particlesOut[];
 };
 
-layout(std430, binding = 12) readonly buffer IndirectIn
+layout(std430, binding = 17) readonly buffer ScatterIndirectIn
 {
-	uint dispatchX;
-	uint dispatchY;
-	uint dispatchZ;
+	uint scatterX;
+	uint scatterY;
+	uint scatterZ;
 	uint totalBins;
 };
 
@@ -103,7 +91,7 @@ void main()
 	}
 
 	vec2 pPos = binsIn[bIndex].position[currentPIndex];
-	
+
 	// Find block index from pos = (floor(cellpos + 0.5) - 2) / 4
 	ivec2 blockCoords = ivec2(floor(pPos * ubo.invDx - 1.5)) / 4;
 	uint block = blockIndex(blockCoords.x, blockCoords.y);
