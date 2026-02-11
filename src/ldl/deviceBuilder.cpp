@@ -100,7 +100,7 @@ namespace ldl
 
 		vkGetPhysicalDeviceFeatures2(device, &physicalDeviceFeatures);
 
-		return floatFeatures.shaderBufferFloat32AtomicAdd == VK_TRUE;
+		return floatFeatures.shaderBufferFloat32AtomicAdd == VK_TRUE && floatFeatures.shaderSharedFloat32AtomicAdd == VK_TRUE;
 	}
 
 	DeviceBuilder::SwapChainSupportDetails DeviceBuilder::querySwapChainSupport(VkPhysicalDevice device)
@@ -201,18 +201,20 @@ namespace ldl
 			queueCreateInfos.push_back(queueCreateInfo);
 		}
 
-		VkPhysicalDeviceFeatures deviceFeatures{};
-
 		VkPhysicalDeviceShaderAtomicFloatFeaturesEXT atomicFloatFeatures{};
 		atomicFloatFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_FEATURES_EXT;
 		atomicFloatFeatures.shaderBufferFloat32AtomicAdd = VK_TRUE;
+		atomicFloatFeatures.shaderSharedFloat32AtomicAdd = VK_TRUE;
+
+		VkPhysicalDeviceFeatures2 deviceFeatures{};
+		deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+		deviceFeatures.pNext = &atomicFloatFeatures;
 
 		VkDeviceCreateInfo deviceInfo{};
 		deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-
+		deviceInfo.pNext = &deviceFeatures;
 		deviceInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
 		deviceInfo.pQueueCreateInfos = queueCreateInfos.data();
-		deviceInfo.pEnabledFeatures = &deviceFeatures;
 		deviceInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
 		deviceInfo.ppEnabledExtensionNames = deviceExtensions.data();
 		deviceInfo.pNext = &atomicFloatFeatures;

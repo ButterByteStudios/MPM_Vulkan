@@ -1,10 +1,10 @@
 #version 450
 
-#define BIN_COUNT 8
+#define BIN_COUNT (16)
 
-struct WorkgroupInfo
+struct WorkgroupData
 {
-	uint block;
+	uvec2 blockCoords;
 	uint firstBinIndex;
 	uint binCount;
 };
@@ -48,14 +48,22 @@ layout(std430, binding = 8) readonly buffer BlockWorkgroupOffsetsSSBOOut
 
 layout(std430, binding = 16) writeonly buffer WorkgroupDataOut
 {
-	WorkgroupInfo workgroupData[];
+	WorkgroupData workgroupData[];
 };
 
-layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+uint blockIndex(uint x, uint y)
+{
+	return x + y * ubo.blockDimensions;
+}
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 void main()
 {
-	uint block = gl_GlobalInvocationID.x;
+	uint x = gl_GlobalInvocationID.x;
+	uint y = gl_GlobalInvocationID.y;
+	uint block = blockIndex(x, y);
+
 	histogram[block] = 0;
 
 	uint binCount = blockBinCount[block];
@@ -67,11 +75,12 @@ void main()
 	uint baseBin = binOffsets[block];
 	uint baseWorkgroup = blockWorkgroupOffsets[block];
 	uint workgroupCount = blockWorkgroupCount[block];
+	
 	for (uint i = 0; i < workgroupCount; i++)
 	{
 		uint workgroupIndex = baseWorkgroup + i;
 		uint binOffset = i * BIN_COUNT;
-		workgroupData[workgroupIndex].block = block;
+		workgroupData[workgroupIndex].blockCoords = gl_GlobalInvocationID.xy;
 		workgroupData[workgroupIndex].firstBinIndex = baseBin + binOffset;
 		workgroupData[workgroupIndex].binCount = min(binCount - binOffset, BIN_COUNT);
 	}

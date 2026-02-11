@@ -1,7 +1,7 @@
 #version 450
 
 // Tune for subgroup size
-#define BIN_SIZE 32
+#define BIN_SIZE (32)
 
 struct Bin
 {
@@ -73,17 +73,17 @@ uint blockIndex(uint x, uint y)
 	return x + y * ubo.blockDimensions;
 }
 
-layout(local_size_x = 8, local_size_y = BIN_SIZE, local_size_z = 1) in;
+layout(local_size_x = BIN_SIZE, local_size_y = 8, local_size_z = 1) in;
 
 void main()
 {
-	uint bIndex = gl_GlobalInvocationID.x;
+	uint bIndex = gl_GlobalInvocationID.y;
 	if (bIndex >= totalBins)
 	{
 		return;
 	}
 
-	uint currentPIndex = gl_LocalInvocationID.y;
+	uint currentPIndex = gl_LocalInvocationID.x;
 	uint binParticleCount = binsIn[bIndex].particleCount;
 	if (currentPIndex >= binParticleCount)
 	{

@@ -1,7 +1,7 @@
 #version 450
 
 // Tune for subgroup size
-#define BIN_SIZE 32
+#define BIN_SIZE (32)
 
 layout(std430, binding = 7) writeonly buffer BlockBinOffsetsSSBOOut
 {

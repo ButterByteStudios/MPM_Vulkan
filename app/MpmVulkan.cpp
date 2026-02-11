@@ -27,11 +27,12 @@
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 800;
 const uint32_t MAX_FRAMES_IN_FLIGHT = 2;
-const uint32_t PARTICLE_COUNT = 1 << 19;
+const uint32_t PARTICLE_COUNT = 1 << 0;
 const uint32_t BIN_KERNEL_SIZE = 8;
 const uint32_t GRID_KERNEL_SIZE = 32;
-const uint32_t BLOCK_KERNEL_SIZE = 256;
-const uint32_t WORKGROUP_BIN_COUNT = 8;
+const uint32_t BLOCK_KERNEL_SIZE = 16;
+const uint32_t SUM_KERNEL_SIZE = 256;
+const uint32_t WORKGROUP_BIN_COUNT = 16;
 const uint32_t BIN_SIZE = 32;
 
 const std::vector<const char*> validationLayers =
@@ -93,7 +94,7 @@ struct G2P2GDispatchData
 
 struct WorkgroupData
 {
-	uint32_t block;
+	glm::ivec2 blockCoords;
 	uint32_t firstBinIndex;
 	uint32_t binCount;
 };
@@ -222,7 +223,7 @@ private:
 	VkPipeline partialglobalsumComputePipeline;
 	VkPipeline globalsumComputePipeline;
 	VkPipeline scatterComputePipeline;
-	VkPipeline clearhistogramComputePipeline;
+	VkPipeline processworkgroupsComputePipeline;
 	VkPipeline gridComputePipeline;
 
 	VkSwapchainKHR swapChain;
@@ -307,7 +308,8 @@ private:
 	uint32_t dimensions = 1 << 7; // Max: 32748. Min: 128. Determined by SUM_KERNEL_SIZE (the block kernels need to atleast have one filled workgroup and max 256 filled workgroups (determined by the localsum workgroupsize))
 	uint32_t gridBlockDimensions = dimensions / 4;
 	uint32_t particleBlockDimensions = gridBlockDimensions - 1;
-	uint32_t paddedParticleBlockCount = ceilIntDivision(particleBlockDimensions * particleBlockDimensions, BLOCK_KERNEL_SIZE) * BLOCK_KERNEL_SIZE;
+	uint32_t paddedParticleBlockDimensions = gridBlockDimensions;
+	uint32_t paddedParticleBlockCount = paddedParticleBlockDimensions * paddedParticleBlockDimensions; // Padded to nearest power of two (gridblockdimensions * gridblockdimensions for convenience
 	uint32_t binCount = particleBlockDimensions * particleBlockDimensions + ceilIntDivision(PARTICLE_COUNT, BIN_SIZE); // Impossibly worst case scenario. Every bin is full and all blocks have one non-full bin
 	uint32_t workgroupCount = particleBlockDimensions * particleBlockDimensions + ceilIntDivision(binCount, WORKGROUP_BIN_COUNT);
 
@@ -1197,7 +1199,7 @@ private:
 			VkDescriptorBufferInfo binSumBufferInfo{};
 			binSumBufferInfo.buffer = binSumBuffer;
 			binSumBufferInfo.offset = 0;
-			binSumBufferInfo.range = sizeof(uint32_t) * BLOCK_KERNEL_SIZE;
+			binSumBufferInfo.range = sizeof(uint32_t) * BLOCK_KERNEL_SIZE * BLOCK_KERNEL_SIZE;
 
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			descriptorWrites[binding].dstSet = computeDescriptorSets[i];
@@ -1211,7 +1213,7 @@ private:
 			VkDescriptorBufferInfo workgroupSumBufferInfo{};
 			workgroupSumBufferInfo.buffer = workgroupSumBuffer;
 			workgroupSumBufferInfo.offset = 0;
-			workgroupSumBufferInfo.range = sizeof(uint32_t) * BLOCK_KERNEL_SIZE;
+			workgroupSumBufferInfo.range = sizeof(uint32_t) * BLOCK_KERNEL_SIZE * BLOCK_KERNEL_SIZE;
 
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			descriptorWrites[binding].dstSet = computeDescriptorSets[i];
@@ -1225,7 +1227,7 @@ private:
 			VkDescriptorBufferInfo particleSumBufferInfo{};
 			particleSumBufferInfo.buffer = particleSumBuffer;
 			particleSumBufferInfo.offset = 0;
-			particleSumBufferInfo.range = sizeof(uint32_t) * BLOCK_KERNEL_SIZE;
+			particleSumBufferInfo.range = sizeof(uint32_t) * BLOCK_KERNEL_SIZE * BLOCK_KERNEL_SIZE;
 
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			descriptorWrites[binding].dstSet = computeDescriptorSets[i];
@@ -1346,7 +1348,7 @@ private:
 		auto partialglobalsumCode = readFile("../shaders/partialglobalsum.comp.spv");
 		auto globalsumCode = readFile("../shaders/globalsum.comp.spv");
 		auto scatterCode = readFile("../shaders/scatter.comp.spv");
-		auto clearhistogramCode = readFile("../shaders/clearhistogram.comp.spv");
+		auto processworkgroupsCode = readFile("../shaders/processworkgroups.comp.spv");
 		auto gridCode = readFile("../shaders/grid.comp.spv");
 
 		std::vector<VkShaderModule> shaderModules =
@@ -1357,7 +1359,7 @@ private:
 			createShaderModule(partialglobalsumCode),
 			createShaderModule(globalsumCode),
 			createShaderModule(scatterCode),
-			createShaderModule(clearhistogramCode),
+			createShaderModule(processworkgroupsCode),
 			createShaderModule(gridCode)
 		};
 
@@ -1409,7 +1411,7 @@ private:
 		partialglobalsumComputePipeline = pipelines[3];
 		globalsumComputePipeline = pipelines[4];
 		scatterComputePipeline = pipelines[5];
-		clearhistogramComputePipeline = pipelines[6];
+		processworkgroupsComputePipeline = pipelines[6];
 		gridComputePipeline = pipelines[7];
 
 		for (VkShaderModule& module : shaderModules)
@@ -1602,7 +1604,7 @@ private:
 		); 
 
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, processhistogramComputePipeline);
-		vkCmdDispatch(commandBuffer, paddedParticleBlockCount / BLOCK_KERNEL_SIZE, 1, 1);
+		vkCmdDispatch(commandBuffer, paddedParticleBlockDimensions / BLOCK_KERNEL_SIZE, paddedParticleBlockDimensions / BLOCK_KERNEL_SIZE, 1);
 
 		vkCmdPipelineBarrier(commandBuffer,
 			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -1615,7 +1617,7 @@ private:
 
 		// Look into https://research.nvidia.com/publication/2016-03_single-pass-parallel-prefix-scan-decoupled-look-back
 			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, localsumComputePipeline);
-			vkCmdDispatch(commandBuffer, paddedParticleBlockCount / BLOCK_KERNEL_SIZE , 1, 1);
+			vkCmdDispatch(commandBuffer, paddedParticleBlockCount / SUM_KERNEL_SIZE, 1, 1);
 
 			vkCmdPipelineBarrier(commandBuffer,
 				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -1639,7 +1641,7 @@ private:
 			);
 
 			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, globalsumComputePipeline);
-			vkCmdDispatch(commandBuffer, paddedParticleBlockCount / BLOCK_KERNEL_SIZE, 1, 1);
+			vkCmdDispatch(commandBuffer, paddedParticleBlockCount / SUM_KERNEL_SIZE, 1, 1);
 			
 			vkCmdPipelineBarrier(commandBuffer,
 				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -1663,8 +1665,8 @@ private:
 			0, nullptr
 		);
 
-		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, clearhistogramComputePipeline);
-		vkCmdDispatch(commandBuffer, paddedParticleBlockCount / BLOCK_KERNEL_SIZE, 1, 1);
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, processworkgroupsComputePipeline);
+		vkCmdDispatch(commandBuffer, paddedParticleBlockDimensions / BLOCK_KERNEL_SIZE, paddedParticleBlockDimensions / BLOCK_KERNEL_SIZE, 1);
 		
 		vkCmdPipelineBarrier(commandBuffer,
 			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -1874,7 +1876,9 @@ private:
 			{
 				uint32_t workgroupIndex = baseWorkgroup + workgroup;
 				uint32_t binOffset = workgroup * WORKGROUP_BIN_COUNT;
-				workgroupData[workgroupIndex].block = i;
+				uint32_t x = i % particleBlockDimensions;
+				uint32_t y = i / particleBlockDimensions;
+				workgroupData[workgroupIndex].blockCoords = glm::uvec2(x, y);
 				workgroupData[workgroupIndex].firstBinIndex = baseBin + binOffset;
 				workgroupData[workgroupIndex].binCount = glm::min(binCount - binOffset, WORKGROUP_BIN_COUNT);
 			}
@@ -1965,8 +1969,8 @@ private:
 		//
 		
 		// local sums
-		std::vector<uint32_t> emptySums(BLOCK_KERNEL_SIZE);
-		bufferSize = sizeof(uint32_t) * BLOCK_KERNEL_SIZE;
+		std::vector<uint32_t> emptySums(BLOCK_KERNEL_SIZE * BLOCK_KERNEL_SIZE);
+		bufferSize = sizeof(uint32_t) * BLOCK_KERNEL_SIZE * BLOCK_KERNEL_SIZE;
 		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
 
 		vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
@@ -2021,8 +2025,8 @@ private:
 		// Scatter indirect dispatch
 		bufferSize = sizeof(ScatterDispatchData);
 		ScatterDispatchData scatterDispatchData{};
-		scatterDispatchData.dispatchX = ceilIntDivision(totalUsedBins, BIN_KERNEL_SIZE);
-		scatterDispatchData.dispatchY = 1;
+		scatterDispatchData.dispatchX = 1;
+		scatterDispatchData.dispatchY = ceilIntDivision(totalUsedBins, BIN_KERNEL_SIZE);
 		scatterDispatchData.dispatchZ = 1;
 		scatterDispatchData.maxGlobalId = totalUsedBins;
 
@@ -2046,8 +2050,8 @@ private:
 		// G2P2G indirect dispatch
 		bufferSize = sizeof(G2P2GDispatchData);
 		G2P2GDispatchData g2p2gDispatchData{};
-		g2p2gDispatchData.dispatchX = totalWorkgroups;
-		g2p2gDispatchData.dispatchY = 1;
+		g2p2gDispatchData.dispatchX = 1;
+		g2p2gDispatchData.dispatchY = totalWorkgroups;
 		g2p2gDispatchData.dispatchZ = 1;
 
 		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
@@ -2439,7 +2443,7 @@ private:
 		vkDestroyPipeline(device, partialglobalsumComputePipeline, nullptr);
 		vkDestroyPipeline(device, globalsumComputePipeline, nullptr);
 		vkDestroyPipeline(device, scatterComputePipeline, nullptr);
-		vkDestroyPipeline(device, clearhistogramComputePipeline, nullptr);
+		vkDestroyPipeline(device, processworkgroupsComputePipeline, nullptr);
 		vkDestroyPipeline(device, gridComputePipeline, nullptr);
 		vkDestroyPipelineLayout(device, computePipelineLayout, nullptr);
 

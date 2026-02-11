@@ -1,8 +1,8 @@
 #version 450
 
 // Tune for subgroup size
-#define BIN_SIZE 32
-#define BIN_COUNT 8
+#define BIN_SIZE (32)
+#define BIN_COUNT (16)
 
 layout(binding = 0) uniform ParameterUBO
 {
@@ -46,19 +46,26 @@ layout(std430, binding = 9) writeonly buffer BlockParticleCountSSBOOut
     uint blockParticleOffsets[];
 };
 
+uint blockIndex(uint x, uint y)
+{
+	return x + y * ubo.blockDimensions;
+}
+
 // This is for blocks, so maybe reduce thread size
-layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 void main()
 {
-    uint i = gl_GlobalInvocationID.x;
+	uint x = gl_GlobalInvocationID.x;
+	uint y = gl_GlobalInvocationID.y;
+    uint block = blockIndex(x, y);
 
-    uint particleCount = histogram[i];
+    uint particleCount = histogram[block];
     uint binCount = (particleCount + BIN_SIZE - 1) / BIN_SIZE;
 	uint workgroupCount = (binCount + BIN_COUNT - 1) / BIN_COUNT;
-    blockBinCount[i] = binCount;
-	blockBinOffsets[i] = binCount;
-	blockWorkgroupCount[i] = workgroupCount;
-	blockWorkgroupOffsets[i] = workgroupCount;
-	blockParticleOffsets[i] = particleCount;
+    blockBinCount[block] = binCount;
+	blockBinOffsets[block] = binCount;
+	blockWorkgroupCount[block] = workgroupCount;
+	blockWorkgroupOffsets[block] = workgroupCount;
+	blockParticleOffsets[block] = particleCount;
 }

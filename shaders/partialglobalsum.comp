@@ -1,7 +1,7 @@
 #version 450
 
 // Tune for subgroup size
-#define BIN_SIZE 32
+#define BIN_SIZE (32)
 
 layout(binding = 0) uniform ParameterUBO
 {
@@ -48,9 +48,9 @@ layout(std430, binding = 19) writeonly buffer G2P2GIndirectOut
 };
 
 // Works on blocks of 128 * 2, so N / 256 workgroups. This always has 1 workgroup
-#define W 128
-#define W2 W*2
-#define W2m1 W2 - 1
+#define W (128)
+#define W2 (W*2)
+#define W2m1 (W2 - 1)
 
 layout(local_size_x = W, local_size_y = 1, local_size_z = 1) in;
 
@@ -122,12 +122,12 @@ void main()
 		// Change 256 based on localSum workgroup size
 		uint validSumCount = ubo.blockDimensions * ubo.blockDimensions / 256;
 		uint usedBins = shBin[validSumCount - 1] + localBinSum[validSumCount - 1];
-		scatterX = (usedBins + 8 - 1) / 8;
+		scatterY = (usedBins + 8 - 1) / 8;
 		totalBins = usedBins;
 
 		// Calculate totalWorkgroups as well
 		uint usedWorkgroups = shWork[validSumCount - 1] + localWorkgroupSum[validSumCount - 1];
-		g2p2gX = usedWorkgroups;
+		g2p2gY = usedWorkgroups;
 	}
 
 	localBinSum[2 * localId] = shBin[2 * localId];
