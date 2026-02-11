@@ -27,7 +27,7 @@
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 800;
 const uint32_t MAX_FRAMES_IN_FLIGHT = 2;
-const uint32_t PARTICLE_COUNT = 1 << 0;
+const uint32_t PARTICLE_COUNT = 1 << 19;
 const uint32_t BIN_KERNEL_SIZE = 8;
 const uint32_t GRID_KERNEL_SIZE = 32;
 const uint32_t BLOCK_KERNEL_SIZE = 16;
