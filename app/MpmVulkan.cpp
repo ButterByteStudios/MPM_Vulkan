@@ -27,13 +27,13 @@
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 800;
 const uint32_t MAX_FRAMES_IN_FLIGHT = 2;
-const uint32_t PARTICLE_COUNT = 1 << 19;
-const uint32_t BIN_KERNEL_SIZE = 8;
+const uint32_t PARTICLE_COUNT = 1 << 20;
+const uint32_t BIN_KERNEL_SIZE = 1;
 const uint32_t GRID_KERNEL_SIZE = 32;
 const uint32_t BLOCK_KERNEL_SIZE = 16;
 const uint32_t SUM_KERNEL_SIZE = 256;
 const uint32_t WORKGROUP_BIN_COUNT = 16;
-const uint32_t BIN_SIZE = 32;
+const uint32_t BIN_SIZE = 32; // Change to specialization constant and set to the retrieved subgroupsize
 
 const std::vector<const char*> validationLayers =
 {
@@ -69,7 +69,6 @@ struct ScatterDispatchData
 	uint32_t dispatchX;
 	uint32_t dispatchY;
 	uint32_t dispatchZ;
-	uint32_t maxGlobalId;
 };
 
 struct G2P2GDispatchData
@@ -305,7 +304,7 @@ private:
 	std::vector<VkDeviceMemory> uniformBuffersMemory;
 	std::vector<void*> uniformBuffersMapped;
 
-	uint32_t dimensions = 1 << 7; // Max: 32748. Min: 128. Determined by SUM_KERNEL_SIZE (the block kernels need to atleast have one filled workgroup and max 256 filled workgroups (determined by the localsum workgroupsize))
+	uint32_t dimensions = 1 << 8; // Max: 32748. Min: 128. Determined by SUM_KERNEL_SIZE (the block kernels need to atleast have one filled workgroup and max 256 filled workgroups (determined by the localsum workgroupsize))
 	uint32_t gridBlockDimensions = dimensions / 4;
 	uint32_t particleBlockDimensions = gridBlockDimensions - 1;
 	uint32_t paddedParticleBlockDimensions = gridBlockDimensions;
@@ -2025,10 +2024,9 @@ private:
 		// Scatter indirect dispatch
 		bufferSize = sizeof(ScatterDispatchData);
 		ScatterDispatchData scatterDispatchData{};
-		scatterDispatchData.dispatchX = 1;
-		scatterDispatchData.dispatchY = ceilIntDivision(totalUsedBins, BIN_KERNEL_SIZE);
+		scatterDispatchData.dispatchX = ceilIntDivision(totalUsedBins, BIN_KERNEL_SIZE);
+		scatterDispatchData.dispatchY = 1;
 		scatterDispatchData.dispatchZ = 1;
-		scatterDispatchData.maxGlobalId = totalUsedBins;
 
 		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
 

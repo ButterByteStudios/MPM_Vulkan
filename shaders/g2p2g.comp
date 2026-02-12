@@ -105,6 +105,8 @@ uint morton(uint x, uint y)
 }
 
 #define G (4)
+#define LOG2_G (2)
+#define G_MASK (G - 1)
 #define G2 (G * G)
 #define GBlockDimensions (G * 2)
 #define GBlock (GBlockDimensions * GBlockDimensions)
@@ -116,7 +118,8 @@ uint subblockIndex(uint x, uint y)
 
 uint blockIndex(uint x, uint y)
 {
-	return x + y * ubo.blockDimensions;
+	const uint blockDimensions = ubo.blockDimensions;
+	return x + y * blockDimensions;
 }
 
 layout(local_size_x = BIN_SIZE, local_size_y = BIN_COUNT, local_size_z = 1) in;
@@ -136,6 +139,14 @@ shared float shMGrid[GBlock];
 
 void main()
 {
+	const float dx = ubo.dx;
+	const float invDx = ubo.invDx;
+	const float dt = ubo.dt;
+	const uint dimensions = ubo.dimensions;
+	const float k = ubo.k;
+	const float mu = ubo.mu;
+	const float rho = ubo.rho;
+
 	uint workgroupIndex = gl_WorkGroupID.y;
 	uint binInWorkgroup = gl_LocalInvocationID.y;
 	uint pIndex = gl_LocalInvocationID.x;
@@ -149,8 +160,8 @@ void main()
 	uint subblockCellX = (binInWorkgroup >> 1) * G; // binInWorkgroup % 2
 
 	// Local x and local y are ordered like this due to the collumn major ordering of the gridblocks in the partial morton
-	uint localX = pIndex / G; 
-	uint localY = pIndex % G;
+	uint localX = pIndex >> LOG2_G; 
+	uint localY = pIndex & G_MASK;
 
 	uint gridSubblockCellIndex = morton(gridBlockCellCoords.x + subblockCellX, gridBlockCellCoords.y + subblockCellY) + pIndex;
 	uint localSubblockIndex = subblockIndex(localX + subblockCellX, localY + subblockCellY);
@@ -182,23 +193,31 @@ void main()
 	if (valid)
 	{
 	vec2 position = bins[binIndex].position[pIndex];
-	vec2 cellPosition = position * ubo.invDx;
+	vec2 cellPosition = position * invDx;
 	ivec2 coords = ivec2(floor(cellPosition - 0.5));
 	ivec2 coordsInBlock = coords - gridBlockCellCoords;
 	
 	vec2 d = cellPosition - coords;
+
+	float dx0 = -d.x * dx;
+	float dx1 = (1 - d.x) * dx;
+	float dx2 = (2 - d.x) * dx;
+
+	float dy0 = -d.y * dx;
+	float dy1 = (1 - d.y) * dx;
+	float dy2 = (2 - d.y) * dx;
 	
-	vec2 d00 = vec2(-d.x + 0, -d.y + 0) * ubo.dx;
-	vec2 d10 = vec2(-d.x + 1, -d.y + 0) * ubo.dx;
-	vec2 d20 = vec2(-d.x + 2, -d.y + 0) * ubo.dx;
+	vec2 d00 = vec2(dx0, dy0);
+	vec2 d10 = vec2(dx1, dy0);
+	vec2 d20 = vec2(dx2, dy0);
 
-	vec2 d01 = vec2(-d.x + 0, -d.y + 1) * ubo.dx;
-	vec2 d11 = vec2(-d.x + 1, -d.y + 1) * ubo.dx;
-	vec2 d21 = vec2(-d.x + 2, -d.y + 1) * ubo.dx;
+	vec2 d01 = vec2(dx0, dy1);
+	vec2 d11 = vec2(dx1, dy1);
+	vec2 d21 = vec2(dx2, dy1);
 
-	vec2 d02 = vec2(-d.x + 0, -d.y + 2) * ubo.dx;
-	vec2 d12 = vec2(-d.x + 1, -d.y + 2) * ubo.dx;
-	vec2 d22 = vec2(-d.x + 2, -d.y + 2) * ubo.dx;
+	vec2 d02 = vec2(dx0, dy2);
+	vec2 d12 = vec2(dx1, dy2);
+	vec2 d22 = vec2(dx2, dy2);
 	
 
 	float uw0 = qw0(d.x);
@@ -251,38 +270,46 @@ void main()
 	B += outerProduct(v12, d12);
 	B += outerProduct(v22, d22);
 
-	float inv_D = 4.0 * ubo.invDx * ubo.invDx;
+	float inv_D = 4.0 * invDx * invDx;
 	mat2 C = B * inv_D;
 
-	mat2 F = (mat2(1.0) + C * ubo.dt) * bins[binIndex].F[pIndex];
+	mat2 F = (mat2(1.0) + C * dt) * bins[binIndex].F[pIndex];
 
 	float J = determinant(F);
 
 	float mass = bins[binIndex].mass[pIndex];
 
 	// 2 outer node halos are off limits so particles stay in particle block territory
-	position = clamp(position + ubo.dt * v, 2 * ubo.dx, (ubo.dimensions - 2) * ubo.dx);
+	position = clamp(position + dt * v, 2 * dx, (dimensions - 2) * dx);
 
 	bins[binIndex].F[pIndex] = F;
 	bins[binIndex].position[pIndex] = position;
 
-	cellPosition = position * ubo.invDx;
-	coords = ivec2(floor(cellPosition - 0.5));
+	cellPosition = position * invDx;
+	coords = ivec2(cellPosition - 0.5);
 	coordsInBlock = coords - gridBlockCellCoords;
 
 	d = cellPosition - coords;
 
-	d00 = vec2(-d.x + 0, -d.y + 0) * ubo.dx;
-	d10 = vec2(-d.x + 1, -d.y + 0) * ubo.dx;
-	d20 = vec2(-d.x + 2, -d.y + 0) * ubo.dx;
+	dx0 = -d.x * dx;
+	dx1 = (1 - d.x) * dx;
+	dx2 = (2 - d.x) * dx;
 
-	d01 = vec2(-d.x + 0, -d.y + 1) * ubo.dx;
-	d11 = vec2(-d.x + 1, -d.y + 1) * ubo.dx;
-	d21 = vec2(-d.x + 2, -d.y + 1) * ubo.dx;
+	dy0 = -d.y * dx;
+	dy1 = (1 - d.y) * dx;
+	dy2 = (2 - d.y) * dx;
 	
-	d02 = vec2(-d.x + 0, -d.y + 2) * ubo.dx;
-	d12 = vec2(-d.x + 1, -d.y + 2) * ubo.dx;
-	d22 = vec2(-d.x + 2, -d.y + 2) * ubo.dx;
+	d00 = vec2(dx0, dy0);
+	d10 = vec2(dx1, dy0);
+	d20 = vec2(dx2, dy0);
+
+	d01 = vec2(dx0, dy1);
+	d11 = vec2(dx1, dy1);
+	d21 = vec2(dx2, dy1);
+
+	d02 = vec2(dx0, dy2);
+	d12 = vec2(dx1, dy2);
+	d22 = vec2(dx2, dy2);
 
 	uw0 = qw0(d.x);
 	uw1 = qw1(d.x);
@@ -310,16 +337,16 @@ void main()
 	mat2 b = F * F_T;
 	float tr_b = b[0][0] + b[1][1];
 	mat2 dev_b = b - tr_b * 0.5 * mat2(1.0);
-	mat2 tau_vol = J * (0.5 * ubo.k) * (J - 1.0 / J) * mat2(1.0);
-	mat2 tau_dev = ubo.mu * dev_b / J;
+	mat2 tau_vol = J * (0.5 * k) * (J - 1.0 / J) * mat2(1.0);
+	mat2 tau_dev = mu * dev_b / J;
 
 	mat2 tau = tau_dev + tau_vol;
 	mat2 cauchy = tau / J;
 
-	float volume = mass / ubo.rho;
+	float volume = mass / rho;
 	float currentVolume = volume * J;
 	
-	mat2 stress = ubo.dt * -volume * cauchy * inv_D;
+	mat2 stress = dt * -volume * cauchy * inv_D;
 	mat2 affine = stress + mass * C;
 
 	vec2 vm = v * mass;
@@ -370,7 +397,7 @@ void main()
 	atomicAdd(shMGrid[subblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 2)], mass * w12);
 	atomicAdd(shMGrid[subblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 2)], mass * w22);
 
-	ivec2 blockCoords = ivec2(floor(cellPosition - 1.5)) / G;
+	ivec2 blockCoords = (coords - 1) >> LOG2_G;
 	uint bIndex = atomicAdd(histogram[blockIndex(blockCoords.x, blockCoords.y)], 1);
 	bins[binIndex].blockParticleIndex[pIndex] = bIndex;
 	}

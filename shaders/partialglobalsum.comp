@@ -37,7 +37,6 @@ layout(std430, binding = 18) writeonly buffer ScatterIndirectOut
 	uint scatterX;
 	uint scatterY;
 	uint scatterZ;
-	uint totalBins;
 };
 
 layout(std430, binding = 19) writeonly buffer G2P2GIndirectOut
@@ -122,11 +121,8 @@ void main()
 		// Change 256 based on localSum workgroup size
 		uint validSumCount = ubo.blockDimensions * ubo.blockDimensions / 256;
 		uint usedBins = shBin[validSumCount - 1] + localBinSum[validSumCount - 1];
-		scatterY = (usedBins + 8 - 1) / 8;
-		totalBins = usedBins;
-
-		// Calculate totalWorkgroups as well
 		uint usedWorkgroups = shWork[validSumCount - 1] + localWorkgroupSum[validSumCount - 1];
+		scatterX = usedBins;
 		g2p2gY = usedWorkgroups;
 	}
 

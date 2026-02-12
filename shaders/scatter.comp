@@ -60,53 +60,56 @@ layout(std430, binding = 15) buffer ParticleSSBOOut
 	Particle particlesOut[];
 };
 
-layout(std430, binding = 17) readonly buffer ScatterIndirectIn
-{
-	uint scatterX;
-	uint scatterY;
-	uint scatterZ;
-	uint totalBins;
-};
-
 uint blockIndex(uint x, uint y)
 {
 	return x + y * ubo.blockDimensions;
 }
 
-layout(local_size_x = BIN_SIZE, local_size_y = 8, local_size_z = 1) in;
+#define LOG2_BIN_SIZE (5)
+#define BIN_MASK (BIN_SIZE - 1u)
+
+layout(local_size_x = BIN_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+shared uint binParticleCount;
 
 void main()
 {
-	uint bIndex = gl_GlobalInvocationID.y;
-	if (bIndex >= totalBins)
-	{
-		return;
-	}
-
+	const float invDx = ubo.invDx;
+	
+	uint bIndex = gl_WorkGroupID.x;
 	uint currentPIndex = gl_LocalInvocationID.x;
-	uint binParticleCount = binsIn[bIndex].particleCount;
+
+	if (currentPIndex == 0)
+	{
+		binParticleCount = binsIn[bIndex].particleCount;
+	}
+	
+	barrier();
+
 	if (currentPIndex >= binParticleCount)
 	{
 		return;
 	}
 
+	mat2 F = binsIn[bIndex].F[currentPIndex];
 	vec2 pPos = binsIn[bIndex].position[currentPIndex];
-
-	// Find block index from pos = (floor(cellpos + 0.5) - 2) / 4
-	ivec2 blockCoords = ivec2(floor(pPos * ubo.invDx - 1.5)) / 4;
-	uint block = blockIndex(blockCoords.x, blockCoords.y);
-
+	float m = binsIn[bIndex].mass[currentPIndex];
 	uint blockParticleIndex = binsIn[bIndex].blockParticleIndex[currentPIndex];
 
-	uint binInBlock = blockParticleIndex / BIN_SIZE;
-	uint particleInBlock = binInBlock * BIN_SIZE;
-	uint nextPIndex = blockParticleIndex - particleInBlock;
+	// Find block index from pos = (floor(cellpos + 0.5) - 2) / 4
+	ivec2 cellCoords = ivec2(pPos * invDx - 1.5); // Use integer round to floor
+	ivec2 blockCoords = cellCoords >> 2; // Divide by 4
+	uint block = blockIndex(blockCoords.x, blockCoords.y);
+
+	uint binInBlock = blockParticleIndex >> LOG2_BIN_SIZE;
+	uint particleInBlock = binInBlock << LOG2_BIN_SIZE;
+	uint nextPIndex = blockParticleIndex & BIN_MASK;
 	uint nextBaseBin = binOffsets[block];
 	uint nextBIndex = nextBaseBin + binInBlock;
 
-	binsOut[nextBIndex].F[nextPIndex] = binsIn[bIndex].F[currentPIndex];
+	binsOut[nextBIndex].F[nextPIndex] = F;
 	binsOut[nextBIndex].position[nextPIndex] = pPos;
-	binsOut[nextBIndex].mass[nextPIndex] = binsIn[bIndex].mass[currentPIndex];
+	binsOut[nextBIndex].mass[nextPIndex] = m;
 
 	if (nextPIndex == 0)
 	{
@@ -115,6 +118,7 @@ void main()
 		binsOut[nextBIndex].particleCount = particlesLeft;
 	}
 	
+	// Split graphics scatter into seperate kernel
 	uint graphicsPIndex = particleOffsets[block] + blockParticleIndex;
-	particlesOut[graphicsPIndex].position = binsIn[bIndex].position[currentPIndex];
+	particlesOut[graphicsPIndex].position = pPos;
 }
