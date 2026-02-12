@@ -27,7 +27,7 @@
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 800;
 const uint32_t MAX_FRAMES_IN_FLIGHT = 2;
-const uint32_t PARTICLE_COUNT = 1 << 20;
+const uint32_t PARTICLE_COUNT = 1 << 22;
 const uint32_t BIN_KERNEL_SIZE = 1;
 const uint32_t GRID_KERNEL_SIZE = 32;
 const uint32_t BLOCK_KERNEL_SIZE = 16;
@@ -170,7 +170,6 @@ void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT
 	}
 }
 
-// Change compute buffers to pingpong between 2 instead of circlebuffered around MAX_FRAMES_IN_FLIGHT
 class MpmVulkan
 {
 public:
@@ -305,9 +304,9 @@ private:
 	std::vector<VkDeviceMemory> uniformBuffersMemory;
 	std::vector<void*> uniformBuffersMapped;
 
-	uint32_t dimensions = 1 << 8; // Max: 32748. Min: 128. Determined by SUM_KERNEL_SIZE (the block kernels need to atleast have one filled workgroup and max 256 filled workgroups (determined by the localsum workgroupsize))
-	uint32_t gridBlockDimensions = dimensions / 4;
-	uint32_t particleBlockDimensions = gridBlockDimensions - 1;
+	uint32_t dimensions = 1 << 7; // Max: 32748. Min: 128. Determined by SUM_KERNEL_SIZE (the block kernels need to atleast have one filled workgroup and max 256 filled workgroups (determined by the localsum workgroupsize))
+	uint32_t gridBlockDimensions = dimensions >> 2;
+	uint32_t particleBlockDimensions = gridBlockDimensions; // Everything is padded to the nearest power of 2, so just do the same with particle block dimensions. The real dimensions are gridblockdimensions - 1, but the sum breaks with that
 	uint32_t paddedParticleBlockDimensions = gridBlockDimensions;
 	uint32_t paddedParticleBlockCount = paddedParticleBlockDimensions * paddedParticleBlockDimensions; // Padded to nearest power of two (gridblockdimensions * gridblockdimensions for convenience
 	uint32_t binCount = particleBlockDimensions * particleBlockDimensions + ceilIntDivision(PARTICLE_COUNT, BIN_SIZE); // Impossibly worst case scenario. Every bin is full and all blocks have one non-full bin
@@ -318,7 +317,7 @@ private:
 	float rho = 100;
 	float dx = 1.0f;
 	float dt = 0.005f;
-	float size = 0.5f;
+	float size = 0.8f;
 
 	void mainLoop()
 	{
@@ -1832,7 +1831,7 @@ private:
 			glm::vec2 cellPos = glm::vec2(x, y);
 			glm::vec2 pos = cellPos * dx;
 			glm::ivec2 coords = glm::ivec2(glm::floor(cellPos - 1.5f));
-			glm::ivec2 blockCoords = coords / 4;
+			glm::ivec2 blockCoords = coords >> 2;
 			uint32_t blockIndex = blockCoords.x + blockCoords.y * particleBlockDimensions;
 
 			blockIndices[i] = blockIndex;

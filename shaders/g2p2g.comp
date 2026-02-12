@@ -118,8 +118,7 @@ uint subblockIndex(uint x, uint y)
 
 uint blockIndex(uint x, uint y)
 {
-	const uint blockDimensions = ubo.blockDimensions;
-	return x + y * blockDimensions;
+	return x + y * ubo.blockDimensions;
 }
 
 layout(local_size_x = BIN_SIZE, local_size_y = BIN_COUNT, local_size_z = 1) in;
@@ -194,7 +193,7 @@ void main()
 	{
 	vec2 position = bins[binIndex].position[pIndex];
 	vec2 cellPosition = position * invDx;
-	ivec2 coords = ivec2(floor(cellPosition - 0.5));
+	ivec2 coords = ivec2(cellPosition - 0.5);
 	ivec2 coordsInBlock = coords - gridBlockCellCoords;
 	
 	vec2 d = cellPosition - coords;
