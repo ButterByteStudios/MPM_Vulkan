@@ -50,11 +50,6 @@ layout(std430, binding = 13) readonly buffer BinSSBOIn
 	Bin binsIn[];
 };
 
-layout(std430, binding = 14) writeonly buffer BinSSBOOut
-{
-	Bin binsOut[];
-};
-
 layout(std430, binding = 15) buffer ParticleSSBOOut
 {
 	Particle particlesOut[];
@@ -73,7 +68,7 @@ layout(local_size_x = BIN_SIZE, local_size_y = 1, local_size_z = 1) in;
 void main()
 {
 	const float invDx = ubo.invDx;
-
+	
 	uint bIndex = gl_WorkGroupID.x;
 	uint currentPIndex = gl_LocalInvocationID.x;
 
@@ -82,9 +77,7 @@ void main()
 		return;
 	}
 
-	mat2 F = binsIn[bIndex].F[currentPIndex];
 	vec2 pPos = binsIn[bIndex].position[currentPIndex];
-	float m = binsIn[bIndex].mass[currentPIndex];
 	uint blockParticleIndex = binsIn[bIndex].blockParticleIndex[currentPIndex];
 
 	// Find block index from pos = (floor(cellpos + 0.5) - 2) / 4
@@ -92,20 +85,7 @@ void main()
 	ivec2 blockCoords = cellCoords >> 2; // Divide by 4
 	uint block = blockIndex(blockCoords.x, blockCoords.y);
 
-	uint binInBlock = blockParticleIndex >> LOG2_BIN_SIZE;
-	uint particleInBlock = binInBlock << LOG2_BIN_SIZE;
-	uint nextPIndex = blockParticleIndex & BIN_MASK;
-	uint nextBaseBin = binOffsets[block];
-	uint nextBIndex = nextBaseBin + binInBlock;
-
-	binsOut[nextBIndex].F[nextPIndex] = F;
-	binsOut[nextBIndex].position[nextPIndex] = pPos;
-	binsOut[nextBIndex].mass[nextPIndex] = m;
-
-	if (nextPIndex == 0)
-	{
-		uint blockParticleCount = histogram[block];
-		uint particlesLeft = min(blockParticleCount - particleInBlock, BIN_SIZE);
-		binsOut[nextBIndex].particleCount = particlesLeft;
-	}
+	// Split graphics scatter into seperate kernel
+	uint graphicsPIndex = particleOffsets[block] + blockParticleIndex;
+	particlesOut[graphicsPIndex].position = pPos;
 }

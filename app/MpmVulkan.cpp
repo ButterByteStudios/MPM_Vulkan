@@ -223,6 +223,7 @@ private:
 	VkPipeline globalsumComputePipeline;
 	VkPipeline scatterComputePipeline;
 	VkPipeline processworkgroupsComputePipeline;
+	VkPipeline graphicsscatterComputePipeline;
 	VkPipeline gridComputePipeline;
 
 	VkSwapchainKHR swapChain;
@@ -1348,6 +1349,7 @@ private:
 		auto globalsumCode = readFile("../shaders/globalsum.comp.spv");
 		auto scatterCode = readFile("../shaders/scatter.comp.spv");
 		auto processworkgroupsCode = readFile("../shaders/processworkgroups.comp.spv");
+		auto graphicsscatterCode = readFile("../shaders/graphicsscatter.comp.spv");
 		auto gridCode = readFile("../shaders/grid.comp.spv");
 
 		std::vector<VkShaderModule> shaderModules =
@@ -1359,6 +1361,7 @@ private:
 			createShaderModule(globalsumCode),
 			createShaderModule(scatterCode),
 			createShaderModule(processworkgroupsCode),
+			createShaderModule(graphicsscatterCode),
 			createShaderModule(gridCode)
 		};
 
@@ -1411,7 +1414,8 @@ private:
 		globalsumComputePipeline = pipelines[4];
 		scatterComputePipeline = pipelines[5];
 		processworkgroupsComputePipeline = pipelines[6];
-		gridComputePipeline = pipelines[7];
+		graphicsscatterComputePipeline = pipelines[7];
+		gridComputePipeline = pipelines[8];
 
 		for (VkShaderModule& module : shaderModules)
 		{
@@ -1667,6 +1671,18 @@ private:
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, processworkgroupsComputePipeline);
 		vkCmdDispatch(commandBuffer, paddedParticleBlockDimensions / BLOCK_KERNEL_SIZE, paddedParticleBlockDimensions / BLOCK_KERNEL_SIZE, 1);
 		
+		vkCmdPipelineBarrier(commandBuffer,
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			0,
+			1, &computeToComputeBarrier,
+			0, nullptr,
+			0, nullptr
+		);
+
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, graphicsscatterComputePipeline);
+		vkCmdDispatchIndirect(commandBuffer, scatterIndirectDispatchBuffers[(currentFrame + MAX_FRAMES_IN_FLIGHT - 1) % MAX_FRAMES_IN_FLIGHT], 0);
+
 		vkCmdPipelineBarrier(commandBuffer,
 			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -2442,6 +2458,7 @@ private:
 		vkDestroyPipeline(device, globalsumComputePipeline, nullptr);
 		vkDestroyPipeline(device, scatterComputePipeline, nullptr);
 		vkDestroyPipeline(device, processworkgroupsComputePipeline, nullptr);
+		vkDestroyPipeline(device, graphicsscatterComputePipeline, nullptr);
 		vkDestroyPipeline(device, gridComputePipeline, nullptr);
 		vkDestroyPipelineLayout(device, computePipelineLayout, nullptr);
 
