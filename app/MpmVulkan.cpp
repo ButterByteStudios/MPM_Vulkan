@@ -27,7 +27,7 @@
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 800;
 const uint32_t MAX_FRAMES_IN_FLIGHT = 2;
-const uint32_t PARTICLE_COUNT = 1 << 22;
+const uint32_t PARTICLE_COUNT = 1 << 12;
 const uint32_t BIN_KERNEL_SIZE = 1;
 const uint32_t GRID_KERNEL_SIZE = 32;
 const uint32_t BLOCK_KERNEL_SIZE = 16;
@@ -40,10 +40,22 @@ const std::vector<const char*> validationLayers =
 	"VK_LAYER_KHRONOS_validation"
 };
 
+const std::vector<const char*> instanceExtensions =
+{
+	VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME,
+	VK_EXT_DEBUG_UTILS_EXTENSION_NAME
+};
+
+const std::vector<VkValidationFeatureEnableEXT> validationExtensions =
+{
+	VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT,
+	VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_RESERVE_BINDING_SLOT_EXT
+};
+
 const std::vector<const char*> deviceExtensions =
 {
 	VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-	VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME,
+	VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME
 };
 
 #ifdef NDEBUG
@@ -220,6 +232,7 @@ private:
 	VkPipeline localsumComputePipeline;
 	VkPipeline partialglobalsumComputePipeline;
 	VkPipeline globalsumComputePipeline;
+	VkPipeline totalextractionComputePipeline;
 	VkPipeline scatterComputePipeline;
 	VkPipeline processworkgroupsComputePipeline;
 	VkPipeline graphicsscatterComputePipeline;
@@ -306,9 +319,9 @@ private:
 
 	uint32_t dimensions = 1 << 7; // Max: 32748. Min: 128. Determined by SUM_KERNEL_SIZE (the block kernels need to atleast have one filled workgroup and max 256 filled workgroups (determined by the localsum workgroupsize))
 	uint32_t gridBlockDimensions = dimensions >> 2;
-	uint32_t particleBlockDimensions = gridBlockDimensions; // Everything is padded to the nearest power of 2, so just do the same with particle block dimensions. The real dimensions are gridblockdimensions - 1, but the sum breaks with that
+	uint32_t particleBlockDimensions = gridBlockDimensions - 1;
 	uint32_t paddedParticleBlockDimensions = gridBlockDimensions;
-	uint32_t paddedParticleBlockCount = paddedParticleBlockDimensions * paddedParticleBlockDimensions; // Padded to nearest power of two (gridblockdimensions * gridblockdimensions for convenience
+	uint32_t paddedParticleBlockCount = paddedParticleBlockDimensions * paddedParticleBlockDimensions; // Padded to nearest power of two (gridblockdimensions * gridblockdimensions)
 	uint32_t binCount = particleBlockDimensions * particleBlockDimensions + ceilIntDivision(PARTICLE_COUNT, BIN_SIZE); // Impossibly worst case scenario. Every bin is full and all blocks have one non-full bin
 	uint32_t workgroupCount = particleBlockDimensions * particleBlockDimensions + ceilIntDivision(binCount, WORKGROUP_BIN_COUNT);
 
@@ -378,11 +391,22 @@ private:
 		appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
 		appInfo.apiVersion = VK_API_VERSION_1_1;
 
+		VkValidationFeaturesEXT features{};
+		features.sType = VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT;
+		features.enabledValidationFeatureCount = static_cast<uint32_t>(validationExtensions.size());
+		features.pEnabledValidationFeatures = validationExtensions.data();
+
 		VkInstanceCreateInfo createInfo{};
 		createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
 		createInfo.pApplicationInfo = &appInfo;
+		createInfo.pNext = &features;
 
 		auto glfwExtensions = getRequiredExtensions();
+		for (auto instanceExtension : instanceExtensions)
+		{
+			glfwExtensions.push_back(instanceExtension);
+		}
+
 		uint32_t glfwExtensionCount = static_cast<uint32_t>(glfwExtensions.size());
 		createInfo.enabledExtensionCount = glfwExtensionCount;
 		createInfo.ppEnabledExtensionNames = glfwExtensions.data();
@@ -1346,6 +1370,7 @@ private:
 		auto localsumCode = readFile("../shaders/localsum.comp.spv");
 		auto partialglobalsumCode = readFile("../shaders/partialglobalsum.comp.spv");
 		auto globalsumCode = readFile("../shaders/globalsum.comp.spv");
+		auto totalextractionCode = readFile("../shaders/totalextraction.comp.spv");
 		auto scatterCode = readFile("../shaders/scatter.comp.spv");
 		auto processworkgroupsCode = readFile("../shaders/processworkgroups.comp.spv");
 		auto graphicsscatterCode = readFile("../shaders/graphicsscatter.comp.spv");
@@ -1358,6 +1383,7 @@ private:
 			createShaderModule(localsumCode),
 			createShaderModule(partialglobalsumCode),
 			createShaderModule(globalsumCode),
+			createShaderModule(totalextractionCode),
 			createShaderModule(scatterCode),
 			createShaderModule(processworkgroupsCode),
 			createShaderModule(graphicsscatterCode),
@@ -1411,10 +1437,11 @@ private:
 		localsumComputePipeline = pipelines[2];
 		partialglobalsumComputePipeline = pipelines[3];
 		globalsumComputePipeline = pipelines[4];
-		scatterComputePipeline = pipelines[5];
-		processworkgroupsComputePipeline = pipelines[6];
-		graphicsscatterComputePipeline = pipelines[7];
-		gridComputePipeline = pipelines[8];
+		totalextractionComputePipeline = pipelines[5];
+		scatterComputePipeline = pipelines[6];
+		processworkgroupsComputePipeline = pipelines[7];
+		graphicsscatterComputePipeline = pipelines[8];
+		gridComputePipeline = pipelines[9];
 
 		for (VkShaderModule& module : shaderModules)
 		{
@@ -1645,6 +1672,18 @@ private:
 			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, globalsumComputePipeline);
 			vkCmdDispatch(commandBuffer, paddedParticleBlockCount / SUM_KERNEL_SIZE, 1, 1);
 			
+			vkCmdPipelineBarrier(commandBuffer,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				0,
+				1, &computeToComputeBarrier,
+				0, nullptr,
+				0, nullptr
+			);
+
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, totalextractionComputePipeline);
+			vkCmdDispatch(commandBuffer, 1, 1, 1);
+
 			vkCmdPipelineBarrier(commandBuffer,
 				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
@@ -1879,7 +1918,7 @@ private:
 		std::cout << totalWorkgroups << " " << workgroupCount << std::endl;
 
 		std::vector<WorkgroupData> workgroupData(workgroupCount);
-		for (size_t i = 0; i < paddedParticleBlockCount; i++)
+		for (size_t i = 0; i < particleBlockDimensions * particleBlockDimensions; i++)
 		{
 			uint32_t binCount = binCounts[i];
 			uint32_t baseBin = binOffsets[i];
@@ -2455,6 +2494,7 @@ private:
 		vkDestroyPipeline(device, localsumComputePipeline, nullptr);
 		vkDestroyPipeline(device, partialglobalsumComputePipeline, nullptr);
 		vkDestroyPipeline(device, globalsumComputePipeline, nullptr);
+		vkDestroyPipeline(device, totalextractionComputePipeline, nullptr);
 		vkDestroyPipeline(device, scatterComputePipeline, nullptr);
 		vkDestroyPipeline(device, processworkgroupsComputePipeline, nullptr);
 		vkDestroyPipeline(device, graphicsscatterComputePipeline, nullptr);

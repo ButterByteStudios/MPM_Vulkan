@@ -58,6 +58,12 @@ void main()
 {
 	uint x = gl_GlobalInvocationID.x;
 	uint y = gl_GlobalInvocationID.y;
+
+	if (x >= ubo.blockDimensions || y >= ubo.blockDimensions)
+	{
+		return;
+	}
+
     uint block = blockIndex(x, y);
 
     uint particleCount = histogram[block];

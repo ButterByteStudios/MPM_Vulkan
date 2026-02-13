@@ -32,20 +32,6 @@ layout(std430, binding = 12) buffer LocalParticleSumSSBOInOut
 	uint localParticleSum[];
 };
 
-layout(std430, binding = 18) writeonly buffer ScatterIndirectOut
-{
-	uint scatterX;
-	uint scatterY;
-	uint scatterZ;
-};
-
-layout(std430, binding = 19) writeonly buffer G2P2GIndirectOut
-{
-	uint g2p2gX;
-	uint g2p2gY;
-	uint g2p2gZ;
-};
-
 // Works on blocks of 128 * 2, so N / 256 workgroups. This always has 1 workgroup
 #define W (128)
 #define W2 (W*2)
@@ -114,16 +100,6 @@ void main()
 			shParticle[i] += tParticle;
 		}
 		barrier();
-	}
-
-	if (localId == 0)
-	{
-		// Change 256 based on localSum workgroup size
-		uint validSumCount = ubo.blockDimensions * ubo.blockDimensions / 256;
-		uint usedBins = shBin[validSumCount - 1] + localBinSum[validSumCount - 1];
-		uint usedWorkgroups = shWork[validSumCount - 1] + localWorkgroupSum[validSumCount - 1];
-		scatterX = usedBins;
-		g2p2gY = usedWorkgroups;
 	}
 
 	localBinSum[2 * localId] = shBin[2 * localId];

@@ -66,7 +66,7 @@ void main()
 	// 3 outer node halos are boundaries so particles stay in particle block territory
 	bool left = x <= 3;
 	bool right = x >= ubo.dimensions - 3;
-	bool down = y <= 3;
+	bool down = y <= 8;
 	bool up = y >= ubo.dimensions - 3;
 
 	if (m == 0 || left || right || down || up)

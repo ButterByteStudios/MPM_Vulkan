@@ -1,0 +1,57 @@
+#version 450
+
+layout(binding = 0) uniform ParameterUBO
+{
+	float k;
+	float mu;
+	float rho;
+	float dx;
+	float invDx;
+	uint dimensions;
+	uint blockDimensions;
+	float dt;
+} ubo;
+
+layout(std430, binding = 5) readonly buffer BlockBinCountSSBOOut
+{
+	uint blockBinCount[];
+};
+
+layout(std430, binding = 6) readonly buffer BlockWorkgroupCountSSBOOut
+{
+	uint blockWorkgroupCount[];
+};
+
+layout(std430, binding = 7) readonly buffer BlockBinOffsetsSSBOOut
+{
+    uint blockBinOffsets[];
+};
+
+layout(std430, binding = 8) readonly buffer BlockWorkgroupOffsetsSSBOOut
+{
+	uint blockWorkgroupOffsets[];
+};
+
+layout(std430, binding = 18) writeonly buffer ScatterIndirectOut
+{
+	uint scatterX;
+	uint scatterY;
+	uint scatterZ;
+};
+
+layout(std430, binding = 19) writeonly buffer G2P2GIndirectOut
+{
+	uint g2p2gX;
+	uint g2p2gY;
+	uint g2p2gZ;
+};
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+    uint validRange = ubo.blockDimensions * ubo.blockDimensions;
+    scatterX = blockBinOffsets[validRange - 1] + blockBinCount[validRange - 1];
+	uint usedWorkgroups = blockWorkgroupOffsets[validRange - 1] + blockWorkgroupCount[validRange - 1];
+	g2p2gY = usedWorkgroups;
+}
