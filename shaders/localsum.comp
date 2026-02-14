@@ -1,63 +1,36 @@
 #version 450
 
-// Tune for subgroup size
-#define BIN_SIZE (32)
+#extension GL_ARB_shading_language_include: enable
+#include "global.glsl"
 
-struct Bin
-{
-	mat2[BIN_SIZE] F;
-	vec2[BIN_SIZE] position;
-	float[BIN_SIZE] mass;
-	uint[BIN_SIZE] blockIndex;
-	uint particleCount;
-};
-
-struct Particle
-{
-	vec4 color;
-	vec2 position;
-};
-
-layout(binding = 0) uniform ParameterUBO
-{
-	float k;
-	float mu;
-	float rho;
-	float dx;
-	float invDx;
-	int dimensions;
-	uint blockDimensions;
-	float dt;
-} ubo;
-
-layout(std430, binding = 7) buffer BlockBinOffsetsSSBOInOut
+layout(std430, binding = BIND_BO) buffer BlockBinOffsetsSSBOInOut
 {
     uint blockBinOffsets[];
 };
 
-layout(std430, binding = 8) buffer BlockWorkgroupOffsetsSSBOInOut
+layout(std430, binding = BIND_WO) buffer BlockWorkgroupOffsetsSSBOInOut
 {
 	uint blockWorkgroupOffsets[];
 };
 
-layout(std430, binding = 9) buffer BlockParticleOffsetsSSBOInOut
+layout(std430, binding = BIND_PO) buffer BlockParticleOffsetsSSBOInOut
 {
     uint blockParticleOffsets[];
 };
 
 // Size to 256, max grid dimensions = 1024 = 256 * 4
-layout(std430, binding = 10) writeonly buffer LocalBinSumSSBOOut
+layout(std430, binding = BIND_BS) writeonly buffer LocalBinSumSSBOOut
 {
 	uint localBinSum[];
 };
 
-layout(std430, binding = 11) writeonly buffer LocalWorkgroupSumSSBOOut
+layout(std430, binding = BIND_WS) writeonly buffer LocalWorkgroupSumSSBOOut
 {
 	uint localWorkgroupSum[];
 };
 
 // Size to 256, max grid dimensions = 1024 = 256 * 4
-layout(std430, binding = 12) writeonly buffer LocalParticleSumSSBOOut
+layout(std430, binding = BIND_PS) writeonly buffer LocalParticleSumSSBOOut
 {
 	uint localParticleSum[];
 };

@@ -1,5 +1,8 @@
 #version 450
 
+#extension GL_ARB_shading_language_include: enable
+#include "global.glsl"
+
 #define BIN_COUNT (16)
 
 struct WorkgroupData
@@ -9,44 +12,32 @@ struct WorkgroupData
 	uint binCount;
 };
 
-layout(binding = 0) uniform ParameterUBO
-{
-	float k;
-	float mu;
-	float rho;
-	float dx;
-	float invDx;
-	uint dimensions;
-	uint blockDimensions;
-	float dt;
-} ubo;
-
-layout(std430, binding = 4) buffer BlockHistogramSSBO
+layout(std430, binding = BIND_H) buffer BlockHistogramSSBO
 {
 	uint histogram[];
 };
 
-layout(std430, binding = 5) readonly buffer BlockBinCountSSBO
+layout(std430, binding = BIND_BC) readonly buffer BlockBinCountSSBO
 {
 	uint blockBinCount[];
 };
 
-layout(std430, binding = 6) readonly buffer BlockWorkgroupCountSSBO
+layout(std430, binding = BIND_WC) readonly buffer BlockWorkgroupCountSSBO
 {
 	uint blockWorkgroupCount[];
 };
 
-layout(std430, binding = 7) readonly buffer BlockBinOffsetsSSBOIn
+layout(std430, binding = BIND_BO) readonly buffer BlockBinOffsetsSSBOIn
 {
     uint binOffsets[];
 };
 
-layout(std430, binding = 8) readonly buffer BlockWorkgroupOffsetsSSBOOut
+layout(std430, binding = BIND_WO) readonly buffer BlockWorkgroupOffsetsSSBOOut
 {
 	uint blockWorkgroupOffsets[];
 };
 
-layout(std430, binding = 16) writeonly buffer WorkgroupDataOut
+layout(std430, binding = BIND_WD) writeonly buffer WorkgroupDataOut
 {
 	WorkgroupData workgroupData[];
 };

@@ -1,63 +1,31 @@
 #version 450
 
-// Tune for subgroup size
-#define BIN_SIZE (32)
+#extension GL_ARB_shading_language_include: enable
+#include "global.glsl"
 
-struct Bin
-{
-	mat2[BIN_SIZE] F;
-	vec2[BIN_SIZE] position;
-	float[BIN_SIZE] mass;
-	uint[BIN_SIZE] blockParticleIndex;
-	uint particleCount;
-};
-
-struct Particle
-{
-	vec4 color;
-	vec2 position;
-};
-
-layout(binding = 0) uniform ParameterUBO
-{
-	float k;
-	float mu;
-	float rho;
-	float dx;
-	float invDx;
-	uint dimensions;
-	uint blockDimensions;
-	float dt;
-} ubo;
-
-layout(std430, binding = 4) readonly buffer BlockHistogramSSBO
+layout(std430, binding = BIND_H) readonly buffer BlockHistogramSSBO
 {
 	uint histogram[];
 };
 
-layout(std430, binding = 7) readonly buffer BlockBinOffsetsSSBOIn
+layout(std430, binding = BIND_BO) readonly buffer BlockBinOffsetsSSBOIn
 {
     uint binOffsets[];
 };
 
-layout(std430, binding = 9) readonly buffer BlockParticleOffsetsSSBOIn
+layout(std430, binding = BIND_PO) readonly buffer BlockParticleOffsetsSSBOIn
 {
     uint particleOffsets[];
 };
 
-layout(std430, binding = 13) readonly buffer BinSSBOIn
+layout(std430, binding = BIND_BR) readonly buffer BinSSBOIn
 {
 	Bin binsIn[];
 };
 
-layout(std430, binding = 14) writeonly buffer BinSSBOOut
+layout(std430, binding = BIND_BW) writeonly buffer BinSSBOOut
 {
 	Bin binsOut[];
-};
-
-layout(std430, binding = 15) buffer ParticleSSBOOut
-{
-	Particle particlesOut[];
 };
 
 uint blockIndex(uint x, uint y)

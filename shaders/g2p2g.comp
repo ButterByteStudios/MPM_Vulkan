@@ -1,19 +1,10 @@
 #version 450
 
 #extension GL_EXT_shader_atomic_float: enable
+#extension GL_ARB_shading_language_include: enable
+#include "global.glsl"
 
-// Tune for subgroup size
-#define BIN_SIZE (32)
 #define BIN_COUNT (16)
-
-struct Bin
-{
-	mat2[BIN_SIZE] F;
-	vec2[BIN_SIZE] position;
-	float[BIN_SIZE] mass;
-	uint[BIN_SIZE] blockParticleIndex;
-	uint particleCount;
-};
 
 struct WorkgroupData
 {
@@ -22,44 +13,32 @@ struct WorkgroupData
 	uint binCount;
 };
 
-layout(binding = 0) uniform ParameterUBO
-{
-	float k;
-	float mu;
-	float rho;
-	float dx;
-	float invDx;
-	uint dimensions;
-	uint blockDimensions;
-	float dt;
-} ubo;
-
-layout(std430, binding = 1) readonly buffer GridVelocitySSBOIn
+layout(std430, binding = BIND_VR) readonly buffer GridVelocitySSBOIn
 {
 	vec2 vRGrid[];
 };
 
-layout(std430, binding = 2) writeonly buffer GridVelocitySSBOOut
+layout(std430, binding = BIND_VW) writeonly buffer GridVelocitySSBOOut
 {
 	vec2 vWGrid[];
 };
 
-layout(std430, binding = 3) writeonly buffer GridMassSSBOOut
+layout(std430, binding = BIND_M) writeonly buffer GridMassSSBOOut
 {
 	float mGrid[];
 };
 
-layout(std430, binding = 4) writeonly buffer BlockHistogramSSBOOut
+layout(std430, binding = BIND_H) writeonly buffer BlockHistogramSSBOOut
 {
 	uint histogram[];
 };
 
-layout(std430, binding = 13) buffer BinSSBOInOut
+layout(std430, binding = BIND_BR) buffer BinSSBOInOut
 {
 	Bin bins[];
 };
 
-layout(std430, binding = 16) readonly buffer WorkgroupDataIn
+layout(std430, binding = BIND_WD) readonly buffer WorkgroupDataIn
 {
 	WorkgroupData workgroupData[];
 };
@@ -121,7 +100,7 @@ uint blockIndex(uint x, uint y)
 	return x + y * ubo.blockDimensions;
 }
 
-layout(local_size_x = BIN_SIZE, local_size_y = BIN_COUNT, local_size_z = 1) in;
+layout(local_size_x = BIN_SIZE, local_size_y = 1, local_size_z = 1) in;
 
 // Naming conventions
 // Gridblock = the G*G blocks comprising the grid
@@ -146,55 +125,51 @@ void main()
 	const float mu = ubo.mu;
 	const float rho = ubo.rho;
 
-	uint workgroupIndex = gl_WorkGroupID.y;
-	uint binInWorkgroup = gl_LocalInvocationID.y;
 	uint pIndex = gl_LocalInvocationID.x;
 
 	// GridBlockCoords represents the top left index (in matrix form) of the 4 subblocks in gridBlockCoords
-	ivec2 gridBlockCoords = workgroupData[workgroupIndex].blockCoords;
-	ivec2 gridBlockCellCoords = gridBlockCoords * G;
+	//ivec2 gridBlockCoords = workgroupData[workgroupIndex].blockCoords;
+	//ivec2 gridBlockCellCoords = gridBlockCoords * G;
 
 	// Subblock x/y represent the subblock offsets determined by the bin
-	uint subblockCellY = (binInWorkgroup & 1) * G; // binInWorkgroup / 2
-	uint subblockCellX = (binInWorkgroup >> 1) * G; // binInWorkgroup % 2
+	//uint subblockCellY = (binInWorkgroup & 1) * G; // binInWorkgroup / 2
+	//uint subblockCellX = (binInWorkgroup >> 1) * G; // binInWorkgroup % 2
 
 	// Local x and local y are ordered like this due to the collumn major ordering of the gridblocks in the partial morton
-	uint localX = pIndex >> LOG2_G; 
-	uint localY = pIndex & G_MASK;
+	//uint localX = pIndex >> LOG2_G; 
+	//uint localY = pIndex & G_MASK;
 
-	uint gridSubblockCellIndex = morton(gridBlockCellCoords.x + subblockCellX, gridBlockCellCoords.y + subblockCellY) + pIndex;
-	uint localSubblockIndex = subblockIndex(localX + subblockCellX, localY + subblockCellY);
+	//uint gridSubblockCellIndex = morton(gridBlockCellCoords.x + subblockCellX, gridBlockCellCoords.y + subblockCellY) + pIndex;
+	//uint localSubblockIndex = subblockIndex(localX + subblockCellX, localY + subblockCellY);
 
-	// Load 4 4x4 blocks
-	if (binInWorkgroup < 4 && pIndex < G2)
-	{
-		shVRGrid[localSubblockIndex] = vRGrid[gridSubblockCellIndex];
-		shVWGrid[localSubblockIndex] = vec2(0);
-		shMGrid[localSubblockIndex] = 0;
-	}
+	//// Load 4 4x4 blocks
+	//if (binInWorkgroup < 4 && pIndex < G2)
+	//{
+	//	shVRGrid[localSubblockIndex] = vRGrid[gridSubblockCellIndex];
+	//	shVWGrid[localSubblockIndex] = vec2(0);
+	//	shMGrid[localSubblockIndex] = 0;
+	//}
 
-	barrier();
+	//barrier();
 
-	bool valid = true;
+	//bool valid = true;
 
-	if (binInWorkgroup >= workgroupData[gl_WorkGroupID.y].binCount)
-	{
-		valid = false;
-	}
+	//if (binInWorkgroup >= workgroupData[gl_WorkGroupID.y].binCount)
+	//{
+	//	valid = false;
+	//}
 	
-	uint binIndex = workgroupData[gl_WorkGroupID.y].firstBinIndex + binInWorkgroup;
+	uint binIndex = gl_WorkGroupID.x;
 	uint binParticleCount = bins[binIndex].particleCount;
 	if (pIndex >= binParticleCount)
 	{
-		valid = false;
+		return;
 	}
 
-	if (valid)
-	{
 	vec2 position = bins[binIndex].position[pIndex];
 	vec2 cellPosition = position * invDx;
 	ivec2 coords = ivec2(cellPosition - 0.5);
-	ivec2 coordsInBlock = coords - gridBlockCellCoords;
+	//ivec2 coordsInBlock = coords - gridBlockCellCoords;
 	
 	vec2 d = cellPosition - coords;
 
@@ -240,17 +215,17 @@ void main()
 	float w12 = uw1 * vw2;
 	float w22 = uw2 * vw2;
 
-	vec2 v00 = w00 * shVRGrid[subblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0)];
-	vec2 v10 = w10 * shVRGrid[subblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 0)];
-	vec2 v20 = w20 * shVRGrid[subblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 0)];
+	vec2 v00 = w00 * vRGrid[partialMorton(coords.x + 0, coords.y + 0)];
+	vec2 v10 = w10 * vRGrid[partialMorton(coords.x + 1, coords.y + 0)];
+	vec2 v20 = w20 * vRGrid[partialMorton(coords.x + 2, coords.y + 0)];
 
-	vec2 v01 = w01 * shVRGrid[subblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 1)];
-	vec2 v11 = w11 * shVRGrid[subblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 1)];
-	vec2 v21 = w21 * shVRGrid[subblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 1)];
+	vec2 v01 = w01 * vRGrid[partialMorton(coords.x + 0, coords.y + 1)];
+	vec2 v11 = w11 * vRGrid[partialMorton(coords.x + 1, coords.y + 1)];
+	vec2 v21 = w21 * vRGrid[partialMorton(coords.x + 2, coords.y + 1)];
 
-	vec2 v02 = w02 * shVRGrid[subblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 2)];
-	vec2 v12 = w12 * shVRGrid[subblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 2)];
-	vec2 v22 = w22 * shVRGrid[subblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 2)];
+	vec2 v02 = w02 * vRGrid[partialMorton(coords.x + 0, coords.y + 2)];
+	vec2 v12 = w12 * vRGrid[partialMorton(coords.x + 1, coords.y + 2)];
+	vec2 v22 = w22 * vRGrid[partialMorton(coords.x + 2, coords.y + 2)];
 
 	vec2 v = v00 + v10 + v20 + 
 			v01 + v11 + v21 + 
@@ -286,7 +261,7 @@ void main()
 
 	cellPosition = position * invDx;
 	coords = ivec2(cellPosition - 0.5);
-	coordsInBlock = coords - gridBlockCellCoords;
+	//coordsInBlock = coords - gridBlockCellCoords;
 
 	d = cellPosition - coords;
 
@@ -362,51 +337,48 @@ void main()
 	vec2 vm12 = w12 * (vm + affine * d12);
 	vec2 vm22 = w22 * (vm + affine * d22);
 
-	atomicAdd(shVWGrid[subblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0)].x, vm00.x);
-	atomicAdd(shVWGrid[subblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0)].y, vm00.y);
-	atomicAdd(shVWGrid[subblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 0)].x, vm10.x);
-	atomicAdd(shVWGrid[subblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 0)].y, vm10.y);
-	atomicAdd(shVWGrid[subblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 0)].x, vm20.x);
-	atomicAdd(shVWGrid[subblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 0)].y, vm20.y);
+	atomicAdd(vWGrid[partialMorton(coords.x + 0, coords.y + 0)].x, vm00.x);
+	atomicAdd(vWGrid[partialMorton(coords.x + 0, coords.y + 0)].y, vm00.y);
+	atomicAdd(vWGrid[partialMorton(coords.x + 1, coords.y + 0)].x, vm10.x);
+	atomicAdd(vWGrid[partialMorton(coords.x + 1, coords.y + 0)].y, vm10.y);
+	atomicAdd(vWGrid[partialMorton(coords.x + 2, coords.y + 0)].x, vm20.x);
+	atomicAdd(vWGrid[partialMorton(coords.x + 2, coords.y + 0)].y, vm20.y);
 
-	atomicAdd(shVWGrid[subblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 1)].x, vm01.x);
-	atomicAdd(shVWGrid[subblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 1)].y, vm01.y);
-	atomicAdd(shVWGrid[subblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 1)].x, vm11.x);
-	atomicAdd(shVWGrid[subblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 1)].y, vm11.y);
-	atomicAdd(shVWGrid[subblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 1)].x, vm21.x);
-	atomicAdd(shVWGrid[subblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 1)].y, vm21.y);
+	atomicAdd(vWGrid[partialMorton(coords.x + 0, coords.y + 1)].x, vm01.x);
+	atomicAdd(vWGrid[partialMorton(coords.x + 0, coords.y + 1)].y, vm01.y);
+	atomicAdd(vWGrid[partialMorton(coords.x + 1, coords.y + 1)].x, vm11.x);
+	atomicAdd(vWGrid[partialMorton(coords.x + 1, coords.y + 1)].y, vm11.y);
+	atomicAdd(vWGrid[partialMorton(coords.x + 2, coords.y + 1)].x, vm21.x);
+	atomicAdd(vWGrid[partialMorton(coords.x + 2, coords.y + 1)].y, vm21.y);
 
-	atomicAdd(shVWGrid[subblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 2)].x, vm02.x);
-	atomicAdd(shVWGrid[subblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 2)].y, vm02.y);
-	atomicAdd(shVWGrid[subblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 2)].x, vm12.x);
-	atomicAdd(shVWGrid[subblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 2)].y, vm12.y);
-	atomicAdd(shVWGrid[subblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 2)].x, vm22.x);
-	atomicAdd(shVWGrid[subblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 2)].y, vm22.y);
+	atomicAdd(vWGrid[partialMorton(coords.x + 0, coords.y + 2)].x, vm02.x);
+	atomicAdd(vWGrid[partialMorton(coords.x + 0, coords.y + 2)].y, vm02.y);
+	atomicAdd(vWGrid[partialMorton(coords.x + 1, coords.y + 2)].x, vm12.x);
+	atomicAdd(vWGrid[partialMorton(coords.x + 1, coords.y + 2)].y, vm12.y);
+	atomicAdd(vWGrid[partialMorton(coords.x + 2, coords.y + 2)].x, vm22.x);
+	atomicAdd(vWGrid[partialMorton(coords.x + 2, coords.y + 2)].y, vm22.y);
 
 
-	atomicAdd(shMGrid[subblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0)], mass * w00);
-	atomicAdd(shMGrid[subblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 0)], mass * w10);
-	atomicAdd(shMGrid[subblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 0)], mass * w20);
+	atomicAdd(mGrid[partialMorton(coords.x + 0, coords.y + 0)], mass * w00);
+	atomicAdd(mGrid[partialMorton(coords.x + 1, coords.y + 0)], mass * w10);
+	atomicAdd(mGrid[partialMorton(coords.x + 2, coords.y + 0)], mass * w20);
 
-	atomicAdd(shMGrid[subblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 1)], mass * w01);
-	atomicAdd(shMGrid[subblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 1)], mass * w11);
-	atomicAdd(shMGrid[subblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 1)], mass * w21);
+	atomicAdd(mGrid[partialMorton(coords.x + 0, coords.y + 1)], mass * w01);
+	atomicAdd(mGrid[partialMorton(coords.x + 1, coords.y + 1)], mass * w11);
+	atomicAdd(mGrid[partialMorton(coords.x + 2, coords.y + 1)], mass * w21);
 
-	atomicAdd(shMGrid[subblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 2)], mass * w02);
-	atomicAdd(shMGrid[subblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 2)], mass * w12);
-	atomicAdd(shMGrid[subblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 2)], mass * w22);
+	atomicAdd(mGrid[partialMorton(coords.x + 0, coords.y + 2)], mass * w02);
+	atomicAdd(mGrid[partialMorton(coords.x + 1, coords.y + 2)], mass * w12);
+	atomicAdd(mGrid[partialMorton(coords.x + 2, coords.y + 2)], mass * w22);
 
 	ivec2 blockCoords = (coords - 1) >> LOG2_G;
 	uint bIndex = atomicAdd(histogram[blockIndex(blockCoords.x, blockCoords.y)], 1);
 	bins[binIndex].blockParticleIndex[pIndex] = bIndex;
-	}
-
-	barrier();
-
-	if (binInWorkgroup < 4 && pIndex < G2)
-	{
-		atomicAdd(vWGrid[gridSubblockCellIndex].x, shVWGrid[localSubblockIndex].x);
-		atomicAdd(vWGrid[gridSubblockCellIndex].y, shVWGrid[localSubblockIndex].y);
-		atomicAdd(mGrid[gridSubblockCellIndex], shMGrid[localSubblockIndex]);
-	}
+	
+	//if (binInWorkgroup < 4 && pIndex < G2)
+	//{
+	//	atomicAdd(vWGrid[gridSubblockCellIndex].x, shVWGrid[localSubblockIndex].x);
+	//	atomicAdd(vWGrid[gridSubblockCellIndex].y, shVWGrid[localSubblockIndex].y);
+	//	atomicAdd(mGrid[gridSubblockCellIndex], shMGrid[localSubblockIndex]);
+	//}
 }
