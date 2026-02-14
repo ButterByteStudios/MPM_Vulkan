@@ -73,6 +73,7 @@ struct UniformBufferObject
 	uint32_t dimensions;
 	uint32_t blockDimensions;
 	float dt;
+	float invDt;
 };
 
 struct ScatterDispatchData
@@ -524,6 +525,7 @@ private:
 		ubo.dimensions = dimensions;
 		ubo.blockDimensions = particleBlockDimensions;
 		ubo.dt = dt;
+		ubo.invDt = 1.0f / dt;
 
 		memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
 	}
@@ -1592,7 +1594,7 @@ private:
 		);
 
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, clearhistogramComputePipeline);
-		vkCmdDispatch(commandBuffer, paddedParticleBlockDimensions / BLOCK_KERNEL_SIZE, paddedParticleBlockDimensions / BLOCK_KERNEL_SIZE, 1);
+		vkCmdDispatch(commandBuffer, paddedParticleBlockCount / (BLOCK_KERNEL_SIZE * BLOCK_KERNEL_SIZE), 1, 1);
 
 		vkCmdPipelineBarrier(commandBuffer,
 			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,

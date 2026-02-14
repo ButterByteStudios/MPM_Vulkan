@@ -8,19 +8,9 @@ layout(std430, binding = BIND_H) writeonly buffer BlockHistogramSSBOOut
 	uint histogram[];
 };
 
-layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 void main()
 {
-	uint x = gl_GlobalInvocationID.x;
-	uint y = gl_GlobalInvocationID.y;
-
-	if (x >= ubo.blockDimensions || y >= ubo.blockDimensions)
-	{
-		return;
-	}
-
-	uint block = blockIndex(x, y);
-
-	histogram[block] = 0;
+	histogram[gl_GlobalInvocationID.x] = 0;
 }

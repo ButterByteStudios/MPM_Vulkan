@@ -47,7 +47,7 @@ void main()
 	}
 	
 	// Put in pushconstants maybe
-	float cflSpeed = ubo.dx / ubo.dt;
+	float cflSpeed = ubo.dx * ubo.invDt;
 
 	// Convert momentum to velocity
 	vGrid[i] = clamp((v / m) + vec2(0, -9.81 * ubo.dt), -cflSpeed, cflSpeed);

@@ -44,6 +44,7 @@ layout(binding = BIND_UBO) uniform ParameterUBO
 	uint dimensions;
 	uint blockDimensions;
 	float dt;
+	float invDt;
 } ubo;
 
 uint blockIndex(uint x, uint y)
