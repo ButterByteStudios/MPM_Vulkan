@@ -2343,6 +2343,7 @@ private:
 		vkDestroyPipeline(device, globalsumComputePipeline, nullptr);
 		vkDestroyPipeline(device, totalextractionComputePipeline, nullptr);
 		vkDestroyPipeline(device, scatterComputePipeline, nullptr);
+		vkDestroyPipeline(device, clearhistogramComputePipeline, nullptr);
 		vkDestroyPipeline(device, graphicsscatterComputePipeline, nullptr);
 		vkDestroyPipeline(device, gridComputePipeline, nullptr);
 		vkDestroyPipelineLayout(device, computePipelineLayout, nullptr);
