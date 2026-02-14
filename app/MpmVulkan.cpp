@@ -219,6 +219,7 @@ private:
 	VkPipeline globalsumComputePipeline;
 	VkPipeline totalextractionComputePipeline;
 	VkPipeline scatterComputePipeline;
+	VkPipeline clearhistogramComputePipeline;
 	VkPipeline graphicsscatterComputePipeline;
 	VkPipeline gridComputePipeline;
 
@@ -1265,6 +1266,7 @@ private:
 		auto globalsumCode = readFile("../shaders/globalsum.comp.spv");
 		auto totalextractionCode = readFile("../shaders/totalextraction.comp.spv");
 		auto scatterCode = readFile("../shaders/scatter.comp.spv");
+		auto clearhistogramCode = readFile("../shaders/clearhistogram.comp.spv");
 		auto graphicsscatterCode = readFile("../shaders/graphicsscatter.comp.spv");
 		auto gridCode = readFile("../shaders/grid.comp.spv");
 
@@ -1277,6 +1279,7 @@ private:
 			createShaderModule(globalsumCode),
 			createShaderModule(totalextractionCode),
 			createShaderModule(scatterCode),
+			createShaderModule(clearhistogramCode),
 			createShaderModule(graphicsscatterCode),
 			createShaderModule(gridCode)
 		};
@@ -1330,8 +1333,9 @@ private:
 		globalsumComputePipeline = pipelines[4];
 		totalextractionComputePipeline = pipelines[5];
 		scatterComputePipeline = pipelines[6];
-		graphicsscatterComputePipeline = pipelines[7];
-		gridComputePipeline = pipelines[8];
+		clearhistogramComputePipeline = pipelines[7];
+		graphicsscatterComputePipeline = pipelines[8];
+		gridComputePipeline = pipelines[9];
 
 		for (VkShaderModule& module : shaderModules)
 		{
@@ -1587,8 +1591,9 @@ private:
 			0, nullptr
 		);
 
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, clearhistogramComputePipeline);
 		vkCmdDispatch(commandBuffer, paddedParticleBlockDimensions / BLOCK_KERNEL_SIZE, paddedParticleBlockDimensions / BLOCK_KERNEL_SIZE, 1);
-		
+
 		vkCmdPipelineBarrier(commandBuffer,
 			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,

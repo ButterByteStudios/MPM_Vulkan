@@ -3,11 +3,6 @@
 #extension GL_ARB_shading_language_include: enable
 #include "global.glsl"
 
-layout(std430, binding = BIND_H) readonly buffer BlockHistogramSSBO
-{
-	uint histogram[];
-};
-
 layout(std430, binding = BIND_BO) readonly buffer BlockBinOffsetsSSBOIn
 {
     uint binOffsets[];
