@@ -50,3 +50,19 @@ uint blockIndex(uint x, uint y)
 {
 	return x + y * ubo.blockDimensions;
 }
+
+uint part1by1(uint x)
+{
+	x = (x | (x << 8)) & 0x00FF00FF;
+	x = (x | (x << 4)) & 0x0F0F0F0F;
+	x = (x | (x << 2)) & 0x33333333;
+	x = (x | (x << 1)) & 0x55555555;
+	return x;
+}
+
+uint partialMorton(uint x, uint y)
+{
+	uint perserve = (((x & 0x3) << 2) | (y & 0x3));
+	
+	return (((part1by1(x) << 1) | part1by1(y)) & 0xFFFFFFF0) | perserve;
+}

@@ -4,13 +4,6 @@
 #extension GL_ARB_shading_language_include: enable
 #include "global.glsl"
 
-struct WorkgroupData
-{
-	ivec2 blockCoords;
-	uint firstBinIndex;
-	uint binCount;
-};
-
 layout(std430, binding = BIND_VR) readonly buffer GridVelocitySSBOIn
 {
 	vec2 vRGrid[];
@@ -62,23 +55,6 @@ float qw2(float x)
 {
 	float xp = x - 0.5;
 	return 0.5 * xp * xp;
-}
-
-// Use lookup table
-uint part1by1(uint x)
-{
-	x = (x | (x << 8)) & 0x00FF00FF;
-	x = (x | (x << 4)) & 0x0F0F0F0F;
-	x = (x | (x << 2)) & 0x33333333;
-	x = (x | (x << 1)) & 0x55555555;
-	return x;
-}
-
-uint partialMorton(uint x, uint y)
-{
-	uint perserve = (((x & 0x3) << 2) | (y & 0x3));
-	
-	return (((part1by1(x) << 1) | part1by1(y)) & 0xFFFFFFF0) | perserve;
 }
 
 uint morton(uint x, uint y)

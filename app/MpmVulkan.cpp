@@ -1608,9 +1608,9 @@ private:
 
 		vkCmdPipelineBarrier(commandBuffer,
 			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
 			0,
-			1, &computeToComputeBarrier,
+			1, &computeToIndirectBarrier,
 			0, nullptr,
 			0, nullptr
 		);
