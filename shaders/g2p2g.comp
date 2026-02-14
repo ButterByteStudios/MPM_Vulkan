@@ -1,7 +1,6 @@
 #version 450
 
 #extension GL_EXT_shader_atomic_float: enable
-#extension GL_EXT_debug_printf: enable
 
 // Tune for subgroup size
 #define BIN_SIZE (32)
@@ -146,8 +145,6 @@ void main()
 	const float k = ubo.k;
 	const float mu = ubo.mu;
 	const float rho = ubo.rho;
-
-	debugPrintfEXT("hi", gl_GlobalInvocationID.x);
 
 	uint workgroupIndex = gl_WorkGroupID.y;
 	uint binInWorkgroup = gl_LocalInvocationID.y;

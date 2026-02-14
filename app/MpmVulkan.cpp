@@ -27,7 +27,7 @@
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 800;
 const uint32_t MAX_FRAMES_IN_FLIGHT = 2;
-const uint32_t PARTICLE_COUNT = 1 << 12;
+const uint32_t PARTICLE_COUNT = 1 << 17;
 const uint32_t BIN_KERNEL_SIZE = 1;
 const uint32_t GRID_KERNEL_SIZE = 32;
 const uint32_t BLOCK_KERNEL_SIZE = 16;
@@ -42,8 +42,7 @@ const std::vector<const char*> validationLayers =
 
 const std::vector<const char*> instanceExtensions =
 {
-	VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME,
-	VK_EXT_DEBUG_UTILS_EXTENSION_NAME
+
 };
 
 const std::vector<VkValidationFeatureEnableEXT> validationExtensions =

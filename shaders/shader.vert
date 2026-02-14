@@ -18,7 +18,7 @@ layout(location = 0) out vec3 fragColor;
 
 void main()
 {
-	gl_PointSize = 1.0;
+	gl_PointSize = 2.0;
 	
 	// Map the position from 0 - dimensions to 0 - (dimensions - 2);
 	vec2 pos = (inPosition * ubo.invDx - 1) / (ubo.dimensions - 2) * 2.0 - 1.0;
