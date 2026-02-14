@@ -15,30 +15,15 @@ layout(std430, binding = BIND_BC) writeonly buffer BlockBinCountSSBOOut
 	uint blockBinCount[];
 };
 
-layout(std430, binding = BIND_WC) writeonly buffer BlockWorkgroupCountSSBOOut
-{
-	uint blockWorkgroupCount[];
-};
-
 layout(std430, binding = BIND_BO) writeonly buffer BlockBinOffsetsSSBOOut
 {
     uint blockBinOffsets[];
-};
-
-layout(std430, binding = BIND_WO) writeonly buffer BlockWorkgroupOffsetsSSBOOut
-{
-	uint blockWorkgroupOffsets[];
 };
 
 layout(std430, binding = BIND_PO) writeonly buffer BlockParticleCountSSBOOut
 {
     uint blockParticleOffsets[];
 };
-
-uint blockIndex(uint x, uint y)
-{
-	return x + y * ubo.blockDimensions;
-}
 
 // This is for blocks, so maybe reduce thread size
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
@@ -57,10 +42,7 @@ void main()
 
     uint particleCount = histogram[block];
     uint binCount = (particleCount + BIN_SIZE - 1) / BIN_SIZE;
-	uint workgroupCount = (binCount + BIN_COUNT - 1) / BIN_COUNT;
     blockBinCount[block] = binCount;
 	blockBinOffsets[block] = binCount;
-	blockWorkgroupCount[block] = workgroupCount;
-	blockWorkgroupOffsets[block] = workgroupCount;
 	blockParticleOffsets[block] = particleCount;
 }

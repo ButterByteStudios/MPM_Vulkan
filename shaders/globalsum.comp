@@ -8,11 +8,6 @@ layout(std430, binding = BIND_BO) writeonly buffer BlockBinOffsetsSSBOOut
     uint blockBinOffsets[];
 };
 
-layout(std430, binding = BIND_WO) writeonly buffer BlockWorkgroupOffsetsSSBOOut
-{
-    uint blockWorkgroupOffsets[];
-};
-
 layout(std430, binding = BIND_PO) writeonly buffer BlockParticleOffsetsSSBOOut
 {
     uint blockParticleOffsets[];
@@ -23,11 +18,6 @@ layout(std430, binding = BIND_BS) readonly buffer LocalBinSumOffsetsSSBOIn
 	uint localBinSumOffsets[];
 };
 
-layout(std430, binding = BIND_WS) readonly buffer LocalWorkgroupSumOffsetsSSBOIn
-{
-	uint localWorkgroupSumOffsets[];
-};
-
 layout(std430, binding = BIND_PS) readonly buffer LocalParticleSumOffsetsSSBOIn
 {
 	uint localParticleSumOffsets[];
@@ -36,7 +26,6 @@ layout(std430, binding = BIND_PS) readonly buffer LocalParticleSumOffsetsSSBOIn
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 shared uint binSum;
-shared uint workSum;
 shared uint particleSum;
 
 void main()
@@ -45,17 +34,15 @@ void main()
 	uint localId = gl_LocalInvocationID.x;
 	uint block = gl_WorkGroupID.x;
 
-	uint base = block * 256;
+	uint base = block * 256; // Replace for global id
 
 	if (localId == 0)
 	{
 		binSum = localBinSumOffsets[block];
-		workSum = localWorkgroupSumOffsets[block];
 		particleSum = localParticleSumOffsets[block];
 	}
 	barrier();
 
 	blockBinOffsets[base + localId] += binSum;
-	blockWorkgroupOffsets[base + localId] += workSum;
 	blockParticleOffsets[base + localId] += particleSum;
 }

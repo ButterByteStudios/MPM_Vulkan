@@ -28,14 +28,6 @@ layout(std430, binding = BIND_G) buffer ParticleSSBOOut
 	Particle particlesOut[];
 };
 
-uint blockIndex(uint x, uint y)
-{
-	return x + y * ubo.blockDimensions;
-}
-
-#define LOG2_BIN_SIZE (5)
-#define BIN_MASK (BIN_SIZE - 1u)
-
 layout(local_size_x = BIN_SIZE, local_size_y = 1, local_size_z = 1) in;
 
 void main()

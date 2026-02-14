@@ -8,19 +8,9 @@ layout(std430, binding = BIND_BC) readonly buffer BlockBinCountSSBOOut
 	uint blockBinCount[];
 };
 
-layout(std430, binding = BIND_WC) readonly buffer BlockWorkgroupCountSSBOOut
-{
-	uint blockWorkgroupCount[];
-};
-
 layout(std430, binding = BIND_BO) readonly buffer BlockBinOffsetsSSBOOut
 {
     uint blockBinOffsets[];
-};
-
-layout(std430, binding = BIND_WO) readonly buffer BlockWorkgroupOffsetsSSBOOut
-{
-	uint blockWorkgroupOffsets[];
 };
 
 layout(std430, binding = BIND_SIDW) writeonly buffer ScatterIndirectOut
@@ -30,19 +20,10 @@ layout(std430, binding = BIND_SIDW) writeonly buffer ScatterIndirectOut
 	uint scatterZ;
 };
 
-layout(std430, binding = BIND_GID) writeonly buffer G2P2GIndirectOut
-{
-	uint g2p2gX;
-	uint g2p2gY;
-	uint g2p2gZ;
-};
-
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
 void main()
 {
     uint validRange = ubo.blockDimensions * ubo.blockDimensions;
     scatterX = blockBinOffsets[validRange - 1] + blockBinCount[validRange - 1];
-	uint usedWorkgroups = blockWorkgroupOffsets[validRange - 1] + blockWorkgroupCount[validRange - 1];
-	g2p2gY = usedWorkgroups;
 }

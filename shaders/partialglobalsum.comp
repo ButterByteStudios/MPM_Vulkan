@@ -3,18 +3,11 @@
 #extension GL_ARB_shading_language_include: enable
 #include "global.glsl"
 
-// Size to 256, max grid dimensions = 1024 = 256 * 4
 layout(std430, binding = BIND_BS) buffer LocalBinSumSSBOInOut
 {
 	uint localBinSum[];
 };
 
-layout(std430, binding = BIND_WS) buffer LocalWorkgroupSumSSBOInOut
-{
-	uint localWorkgroupSum[];
-};
-
-// Size to 256, max grid dimensions = 1024 = 256 * 4
 layout(std430, binding = BIND_PS) buffer LocalParticleSumSSBOInOut
 {
 	uint localParticleSum[];
@@ -28,7 +21,6 @@ layout(std430, binding = BIND_PS) buffer LocalParticleSumSSBOInOut
 layout(local_size_x = W, local_size_y = 1, local_size_z = 1) in;
 
 shared uint shBin[W2];
-shared uint shWork[W2];
 shared uint shParticle[W2];
 
 void main()
@@ -37,9 +29,6 @@ void main()
 
 	shBin[2 * localId] = localBinSum[2 * localId];
 	shBin[2 * localId + 1] = localBinSum[2 * localId + 1];
-
-	shWork[2 * localId] = localWorkgroupSum[2 * localId];
-	shWork[2 * localId + 1] = localWorkgroupSum[2 * localId + 1];
 
 	shParticle[2 * localId] = localParticleSum[2 * localId];
 	shParticle[2 * localId + 1] = localParticleSum[2 * localId + 1];
@@ -53,7 +42,6 @@ void main()
 		if (i < W2)
 		{
 			shBin[i] += shBin[i - offset];
-			shWork[i] += shWork[i - offset];
 			shParticle[i] += shParticle[i - offset];
 		}
 		barrier();
@@ -63,7 +51,6 @@ void main()
 	if (localId == 0)
 	{
 		shBin[W2m1] = 0;
-		shWork[W2m1] = 0;
 		shParticle[W2m1] = 0;
 	}
 
@@ -79,10 +66,6 @@ void main()
 			shBin[i - offset] = shBin[i];
 			shBin[i] += tBin;
 
-			uint tWork = shWork[i - offset];
-			shWork[i - offset] = shWork[i];
-			shWork[i] += tWork;
-
 			uint tParticle = shParticle[i - offset];
 			shParticle[i - offset] = shParticle[i];
 			shParticle[i] += tParticle;
@@ -93,9 +76,6 @@ void main()
 	localBinSum[2 * localId] = shBin[2 * localId];
 	localBinSum[2 * localId + 1] = shBin[2 * localId + 1];
 
-	localWorkgroupSum[2 * localId] = shWork[2 * localId];
-	localWorkgroupSum[2 * localId + 1] = shWork[2 * localId + 1];
-	
 	localParticleSum[2 * localId] = shParticle[2 * localId];
 	localParticleSum[2 * localId + 1] = shParticle[2 * localId + 1];
 }

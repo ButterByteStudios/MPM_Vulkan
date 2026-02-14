@@ -33,14 +33,19 @@ layout(std430, binding = BIND_H) writeonly buffer BlockHistogramSSBOOut
 	uint histogram[];
 };
 
+layout(std430, binding = BIND_BC) readonly buffer BlockBinCountSSBOOut
+{
+	uint blockBinCount[];
+};
+
+layout(std430, binding = BIND_BO) readonly buffer BlockBinOffsetsSSBOOut
+{
+    uint blockBinOffsets[];
+};
+
 layout(std430, binding = BIND_BR) buffer BinSSBOInOut
 {
 	Bin bins[];
-};
-
-layout(std430, binding = BIND_WD) readonly buffer WorkgroupDataIn
-{
-	WorkgroupData workgroupData[];
 };
 
 float qw0(float x)
@@ -95,11 +100,6 @@ uint subblockIndex(uint x, uint y)
 	return x + y * GBlockDimensions;
 }
 
-uint blockIndex(uint x, uint y)
-{
-	return x + y * ubo.blockDimensions;
-}
-
 layout(local_size_x = BIN_SIZE, local_size_y = 1, local_size_z = 1) in;
 
 // Naming conventions
@@ -111,9 +111,9 @@ layout(local_size_x = BIN_SIZE, local_size_y = 1, local_size_z = 1) in;
 // Cell = a suffix denoting the prefix is in cellspace
 // Index = a suffix denoting the prefix is a flattened index
 
-shared vec2 shVRGrid[GBlock];
-shared vec2 shVWGrid[GBlock];
-shared float shMGrid[GBlock];
+//shared vec2 shVRGrid[GBlock];
+//shared vec2 shVWGrid[GBlock];
+//shared float shMGrid[GBlock];
 
 void main()
 {
@@ -124,8 +124,6 @@ void main()
 	const float k = ubo.k;
 	const float mu = ubo.mu;
 	const float rho = ubo.rho;
-
-	uint pIndex = gl_LocalInvocationID.x;
 
 	// GridBlockCoords represents the top left index (in matrix form) of the 4 subblocks in gridBlockCoords
 	//ivec2 gridBlockCoords = workgroupData[workgroupIndex].blockCoords;
@@ -158,222 +156,236 @@ void main()
 	//{
 	//	valid = false;
 	//}
-	
-	uint binIndex = gl_WorkGroupID.x;
-	uint binParticleCount = bins[binIndex].particleCount;
-	if (pIndex >= binParticleCount)
+
+	uint pIndex = gl_LocalInvocationID.x;
+	ivec2 gridBlockCoords = ivec2(gl_WorkGroupID.xy);
+	uint block = blockIndex(gl_WorkGroupID.x, gl_WorkGroupID.y);
+	uint baseBin = blockBinOffsets[block];
+	uint binCount = blockBinCount[block];
+
+	if (binCount == 0)
 	{
 		return;
 	}
-
-	vec2 position = bins[binIndex].position[pIndex];
-	vec2 cellPosition = position * invDx;
-	ivec2 coords = ivec2(cellPosition - 0.5);
-	//ivec2 coordsInBlock = coords - gridBlockCellCoords;
 	
-	vec2 d = cellPosition - coords;
+	for (uint binInBlock = 0; binInBlock < binCount; binInBlock++)
+	{
+		uint binIndex = baseBin + binInBlock;
+		uint binParticleCount = bins[binIndex].particleCount;
+		if (pIndex < binParticleCount)
+		{
+			vec2 position = bins[binIndex].position[pIndex];
+			vec2 cellPosition = position * invDx;
+			ivec2 coords = ivec2(cellPosition - 0.5);
+			//ivec2 coordsInBlock = coords - gridBlockCellCoords;
+			
+			vec2 d = cellPosition - coords;
 
-	float dx0 = -d.x * dx;
-	float dx1 = (1 - d.x) * dx;
-	float dx2 = (2 - d.x) * dx;
+			float dx0 = -d.x * dx;
+			float dx1 = (1 - d.x) * dx;
+			float dx2 = (2 - d.x) * dx;
 
-	float dy0 = -d.y * dx;
-	float dy1 = (1 - d.y) * dx;
-	float dy2 = (2 - d.y) * dx;
-	
-	vec2 d00 = vec2(dx0, dy0);
-	vec2 d10 = vec2(dx1, dy0);
-	vec2 d20 = vec2(dx2, dy0);
+			float dy0 = -d.y * dx;
+			float dy1 = (1 - d.y) * dx;
+			float dy2 = (2 - d.y) * dx;
+			
+			vec2 d00 = vec2(dx0, dy0);
+			vec2 d10 = vec2(dx1, dy0);
+			vec2 d20 = vec2(dx2, dy0);
 
-	vec2 d01 = vec2(dx0, dy1);
-	vec2 d11 = vec2(dx1, dy1);
-	vec2 d21 = vec2(dx2, dy1);
+			vec2 d01 = vec2(dx0, dy1);
+			vec2 d11 = vec2(dx1, dy1);
+			vec2 d21 = vec2(dx2, dy1);
 
-	vec2 d02 = vec2(dx0, dy2);
-	vec2 d12 = vec2(dx1, dy2);
-	vec2 d22 = vec2(dx2, dy2);
-	
+			vec2 d02 = vec2(dx0, dy2);
+			vec2 d12 = vec2(dx1, dy2);
+			vec2 d22 = vec2(dx2, dy2);
+			
 
-	float uw0 = qw0(d.x);
-	float uw1 = qw1(d.x);
-	float uw2 = qw2(d.x);
+			float uw0 = qw0(d.x);
+			float uw1 = qw1(d.x);
+			float uw2 = qw2(d.x);
 
-	float vw0 = qw0(d.y);
-	float vw1 = qw1(d.y);
-	float vw2 = qw2(d.y);
-
-
-	float w00 = uw0 * vw0;
-	float w10 = uw1 * vw0;
-	float w20 = uw2 * vw0;
-
-	float w01 = uw0 * vw1;
-	float w11 = uw1 * vw1;
-	float w21 = uw2 * vw1;
-
-	float w02 = uw0 * vw2;
-	float w12 = uw1 * vw2;
-	float w22 = uw2 * vw2;
-
-	vec2 v00 = w00 * vRGrid[partialMorton(coords.x + 0, coords.y + 0)];
-	vec2 v10 = w10 * vRGrid[partialMorton(coords.x + 1, coords.y + 0)];
-	vec2 v20 = w20 * vRGrid[partialMorton(coords.x + 2, coords.y + 0)];
-
-	vec2 v01 = w01 * vRGrid[partialMorton(coords.x + 0, coords.y + 1)];
-	vec2 v11 = w11 * vRGrid[partialMorton(coords.x + 1, coords.y + 1)];
-	vec2 v21 = w21 * vRGrid[partialMorton(coords.x + 2, coords.y + 1)];
-
-	vec2 v02 = w02 * vRGrid[partialMorton(coords.x + 0, coords.y + 2)];
-	vec2 v12 = w12 * vRGrid[partialMorton(coords.x + 1, coords.y + 2)];
-	vec2 v22 = w22 * vRGrid[partialMorton(coords.x + 2, coords.y + 2)];
-
-	vec2 v = v00 + v10 + v20 + 
-			v01 + v11 + v21 + 
-			v02 + v12 + v22;
-
-	mat2 B = mat2(0);
-	B += outerProduct(v00, d00);
-	B += outerProduct(v10, d10);
-	B += outerProduct(v20, d20);
-
-	B += outerProduct(v01, d01);
-	B += outerProduct(v11, d11);
-	B += outerProduct(v21, d21);
-
-	B += outerProduct(v02, d02);
-	B += outerProduct(v12, d12);
-	B += outerProduct(v22, d22);
-
-	float inv_D = 4.0 * invDx * invDx;
-	mat2 C = B * inv_D;
-
-	mat2 F = (mat2(1.0) + C * dt) * bins[binIndex].F[pIndex];
-
-	float J = determinant(F);
-
-	float mass = bins[binIndex].mass[pIndex];
-
-	// 2 outer node halos are off limits so particles stay in particle block territory
-	position = clamp(position + dt * v, 2 * dx, (dimensions - 2) * dx);
-
-	bins[binIndex].F[pIndex] = F;
-	bins[binIndex].position[pIndex] = position;
-
-	cellPosition = position * invDx;
-	coords = ivec2(cellPosition - 0.5);
-	//coordsInBlock = coords - gridBlockCellCoords;
-
-	d = cellPosition - coords;
-
-	dx0 = -d.x * dx;
-	dx1 = (1 - d.x) * dx;
-	dx2 = (2 - d.x) * dx;
-
-	dy0 = -d.y * dx;
-	dy1 = (1 - d.y) * dx;
-	dy2 = (2 - d.y) * dx;
-	
-	d00 = vec2(dx0, dy0);
-	d10 = vec2(dx1, dy0);
-	d20 = vec2(dx2, dy0);
-
-	d01 = vec2(dx0, dy1);
-	d11 = vec2(dx1, dy1);
-	d21 = vec2(dx2, dy1);
-
-	d02 = vec2(dx0, dy2);
-	d12 = vec2(dx1, dy2);
-	d22 = vec2(dx2, dy2);
-
-	uw0 = qw0(d.x);
-	uw1 = qw1(d.x);
-	uw2 = qw2(d.x);
-
-	vw0 = qw0(d.y);
-	vw1 = qw1(d.y);
-	vw2 = qw2(d.y);
+			float vw0 = qw0(d.y);
+			float vw1 = qw1(d.y);
+			float vw2 = qw2(d.y);
 
 
-	w00 = uw0 * vw0;
-	w10 = uw1 * vw0;
-	w20 = uw2 * vw0;
+			float w00 = uw0 * vw0;
+			float w10 = uw1 * vw0;
+			float w20 = uw2 * vw0;
 
-	w01 = uw0 * vw1;
-	w11 = uw1 * vw1;
-	w21 = uw2 * vw1;
+			float w01 = uw0 * vw1;
+			float w11 = uw1 * vw1;
+			float w21 = uw2 * vw1;
 
-	w02 = uw0 * vw2;
-	w12 = uw1 * vw2;
-	w22 = uw2 * vw2;
+			float w02 = uw0 * vw2;
+			float w12 = uw1 * vw2;
+			float w22 = uw2 * vw2;
+
+			vec2 v00 = w00 * vRGrid[partialMorton(coords.x + 0, coords.y + 0)];
+			vec2 v10 = w10 * vRGrid[partialMorton(coords.x + 1, coords.y + 0)];
+			vec2 v20 = w20 * vRGrid[partialMorton(coords.x + 2, coords.y + 0)];
+
+			vec2 v01 = w01 * vRGrid[partialMorton(coords.x + 0, coords.y + 1)];
+			vec2 v11 = w11 * vRGrid[partialMorton(coords.x + 1, coords.y + 1)];
+			vec2 v21 = w21 * vRGrid[partialMorton(coords.x + 2, coords.y + 1)];
+
+			vec2 v02 = w02 * vRGrid[partialMorton(coords.x + 0, coords.y + 2)];
+			vec2 v12 = w12 * vRGrid[partialMorton(coords.x + 1, coords.y + 2)];
+			vec2 v22 = w22 * vRGrid[partialMorton(coords.x + 2, coords.y + 2)];
+
+			vec2 v = v00 + v10 + v20 + 
+					v01 + v11 + v21 + 
+					v02 + v12 + v22;
+
+			mat2 B = mat2(0);
+			B += outerProduct(v00, d00);
+			B += outerProduct(v10, d10);
+			B += outerProduct(v20, d20);
+
+			B += outerProduct(v01, d01);
+			B += outerProduct(v11, d11);
+			B += outerProduct(v21, d21);
+
+			B += outerProduct(v02, d02);
+			B += outerProduct(v12, d12);
+			B += outerProduct(v22, d22);
+
+			float inv_D = 4.0 * invDx * invDx;
+			mat2 C = B * inv_D;
+
+			mat2 F = (mat2(1.0) + C * dt) * bins[binIndex].F[pIndex];
+
+			float J = determinant(F);
+
+			float mass = bins[binIndex].mass[pIndex];
+
+			// 2 outer node halos are off limits so particles stay in particle block territory
+			position = clamp(position + dt * v, 2 * dx, (dimensions - 2) * dx);
+
+			bins[binIndex].F[pIndex] = F;
+			bins[binIndex].position[pIndex] = position;
+
+			cellPosition = position * invDx;
+			coords = ivec2(cellPosition - 0.5);
+			//coordsInBlock = coords - gridBlockCellCoords;
+
+			d = cellPosition - coords;
+
+			dx0 = -d.x * dx;
+			dx1 = (1 - d.x) * dx;
+			dx2 = (2 - d.x) * dx;
+
+			dy0 = -d.y * dx;
+			dy1 = (1 - d.y) * dx;
+			dy2 = (2 - d.y) * dx;
+			
+			d00 = vec2(dx0, dy0);
+			d10 = vec2(dx1, dy0);
+			d20 = vec2(dx2, dy0);
+
+			d01 = vec2(dx0, dy1);
+			d11 = vec2(dx1, dy1);
+			d21 = vec2(dx2, dy1);
+
+			d02 = vec2(dx0, dy2);
+			d12 = vec2(dx1, dy2);
+			d22 = vec2(dx2, dy2);
+
+			uw0 = qw0(d.x);
+			uw1 = qw1(d.x);
+			uw2 = qw2(d.x);
+
+			vw0 = qw0(d.y);
+			vw1 = qw1(d.y);
+			vw2 = qw2(d.y);
 
 
-	mat2 F_T = transpose(F);
-	mat2 b = F * F_T;
-	float tr_b = b[0][0] + b[1][1];
-	mat2 dev_b = b - tr_b * 0.5 * mat2(1.0);
-	mat2 tau_vol = J * (0.5 * k) * (J - 1.0 / J) * mat2(1.0);
-	mat2 tau_dev = mu * dev_b / J;
+			w00 = uw0 * vw0;
+			w10 = uw1 * vw0;
+			w20 = uw2 * vw0;
 
-	mat2 tau = tau_dev + tau_vol;
-	mat2 cauchy = tau / J;
+			w01 = uw0 * vw1;
+			w11 = uw1 * vw1;
+			w21 = uw2 * vw1;
 
-	float volume = mass / rho;
-	float currentVolume = volume * J;
-	
-	mat2 stress = dt * -volume * cauchy * inv_D;
-	mat2 affine = stress + mass * C;
-
-	vec2 vm = v * mass;
-
-	vec2 vm00 = w00 * (vm + affine * d00);
-	vec2 vm10 = w10 * (vm + affine * d10);
-	vec2 vm20 = w20 * (vm + affine * d20);	
-	
-	vec2 vm01 = w01 * (vm + affine * d01);
-	vec2 vm11 = w11 * (vm + affine * d11);
-	vec2 vm21 = w21 * (vm + affine * d21);	
-	
-	vec2 vm02 = w02 * (vm + affine * d02);
-	vec2 vm12 = w12 * (vm + affine * d12);
-	vec2 vm22 = w22 * (vm + affine * d22);
-
-	atomicAdd(vWGrid[partialMorton(coords.x + 0, coords.y + 0)].x, vm00.x);
-	atomicAdd(vWGrid[partialMorton(coords.x + 0, coords.y + 0)].y, vm00.y);
-	atomicAdd(vWGrid[partialMorton(coords.x + 1, coords.y + 0)].x, vm10.x);
-	atomicAdd(vWGrid[partialMorton(coords.x + 1, coords.y + 0)].y, vm10.y);
-	atomicAdd(vWGrid[partialMorton(coords.x + 2, coords.y + 0)].x, vm20.x);
-	atomicAdd(vWGrid[partialMorton(coords.x + 2, coords.y + 0)].y, vm20.y);
-
-	atomicAdd(vWGrid[partialMorton(coords.x + 0, coords.y + 1)].x, vm01.x);
-	atomicAdd(vWGrid[partialMorton(coords.x + 0, coords.y + 1)].y, vm01.y);
-	atomicAdd(vWGrid[partialMorton(coords.x + 1, coords.y + 1)].x, vm11.x);
-	atomicAdd(vWGrid[partialMorton(coords.x + 1, coords.y + 1)].y, vm11.y);
-	atomicAdd(vWGrid[partialMorton(coords.x + 2, coords.y + 1)].x, vm21.x);
-	atomicAdd(vWGrid[partialMorton(coords.x + 2, coords.y + 1)].y, vm21.y);
-
-	atomicAdd(vWGrid[partialMorton(coords.x + 0, coords.y + 2)].x, vm02.x);
-	atomicAdd(vWGrid[partialMorton(coords.x + 0, coords.y + 2)].y, vm02.y);
-	atomicAdd(vWGrid[partialMorton(coords.x + 1, coords.y + 2)].x, vm12.x);
-	atomicAdd(vWGrid[partialMorton(coords.x + 1, coords.y + 2)].y, vm12.y);
-	atomicAdd(vWGrid[partialMorton(coords.x + 2, coords.y + 2)].x, vm22.x);
-	atomicAdd(vWGrid[partialMorton(coords.x + 2, coords.y + 2)].y, vm22.y);
+			w02 = uw0 * vw2;
+			w12 = uw1 * vw2;
+			w22 = uw2 * vw2;
 
 
-	atomicAdd(mGrid[partialMorton(coords.x + 0, coords.y + 0)], mass * w00);
-	atomicAdd(mGrid[partialMorton(coords.x + 1, coords.y + 0)], mass * w10);
-	atomicAdd(mGrid[partialMorton(coords.x + 2, coords.y + 0)], mass * w20);
+			mat2 F_T = transpose(F);
+			mat2 b = F * F_T;
+			float tr_b = b[0][0] + b[1][1];
+			mat2 dev_b = b - tr_b * 0.5 * mat2(1.0);
+			mat2 tau_vol = J * (0.5 * k) * (J - 1.0 / J) * mat2(1.0);
+			mat2 tau_dev = mu * dev_b / J;
 
-	atomicAdd(mGrid[partialMorton(coords.x + 0, coords.y + 1)], mass * w01);
-	atomicAdd(mGrid[partialMorton(coords.x + 1, coords.y + 1)], mass * w11);
-	atomicAdd(mGrid[partialMorton(coords.x + 2, coords.y + 1)], mass * w21);
+			mat2 tau = tau_dev + tau_vol;
+			mat2 cauchy = tau / J;
 
-	atomicAdd(mGrid[partialMorton(coords.x + 0, coords.y + 2)], mass * w02);
-	atomicAdd(mGrid[partialMorton(coords.x + 1, coords.y + 2)], mass * w12);
-	atomicAdd(mGrid[partialMorton(coords.x + 2, coords.y + 2)], mass * w22);
+			float volume = mass / rho;
+			float currentVolume = volume * J;
+			
+			mat2 stress = dt * -volume * cauchy * inv_D;
+			mat2 affine = stress + mass * C;
 
-	ivec2 blockCoords = (coords - 1) >> LOG2_G;
-	uint bIndex = atomicAdd(histogram[blockIndex(blockCoords.x, blockCoords.y)], 1);
-	bins[binIndex].blockParticleIndex[pIndex] = bIndex;
+			vec2 vm = v * mass;
+
+			vec2 vm00 = w00 * (vm + affine * d00);
+			vec2 vm10 = w10 * (vm + affine * d10);
+			vec2 vm20 = w20 * (vm + affine * d20);	
+			
+			vec2 vm01 = w01 * (vm + affine * d01);
+			vec2 vm11 = w11 * (vm + affine * d11);
+			vec2 vm21 = w21 * (vm + affine * d21);	
+			
+			vec2 vm02 = w02 * (vm + affine * d02);
+			vec2 vm12 = w12 * (vm + affine * d12);
+			vec2 vm22 = w22 * (vm + affine * d22);
+
+			atomicAdd(vWGrid[partialMorton(coords.x + 0, coords.y + 0)].x, vm00.x);
+			atomicAdd(vWGrid[partialMorton(coords.x + 0, coords.y + 0)].y, vm00.y);
+			atomicAdd(vWGrid[partialMorton(coords.x + 1, coords.y + 0)].x, vm10.x);
+			atomicAdd(vWGrid[partialMorton(coords.x + 1, coords.y + 0)].y, vm10.y);
+			atomicAdd(vWGrid[partialMorton(coords.x + 2, coords.y + 0)].x, vm20.x);
+			atomicAdd(vWGrid[partialMorton(coords.x + 2, coords.y + 0)].y, vm20.y);
+
+			atomicAdd(vWGrid[partialMorton(coords.x + 0, coords.y + 1)].x, vm01.x);
+			atomicAdd(vWGrid[partialMorton(coords.x + 0, coords.y + 1)].y, vm01.y);
+			atomicAdd(vWGrid[partialMorton(coords.x + 1, coords.y + 1)].x, vm11.x);
+			atomicAdd(vWGrid[partialMorton(coords.x + 1, coords.y + 1)].y, vm11.y);
+			atomicAdd(vWGrid[partialMorton(coords.x + 2, coords.y + 1)].x, vm21.x);
+			atomicAdd(vWGrid[partialMorton(coords.x + 2, coords.y + 1)].y, vm21.y);
+
+			atomicAdd(vWGrid[partialMorton(coords.x + 0, coords.y + 2)].x, vm02.x);
+			atomicAdd(vWGrid[partialMorton(coords.x + 0, coords.y + 2)].y, vm02.y);
+			atomicAdd(vWGrid[partialMorton(coords.x + 1, coords.y + 2)].x, vm12.x);
+			atomicAdd(vWGrid[partialMorton(coords.x + 1, coords.y + 2)].y, vm12.y);
+			atomicAdd(vWGrid[partialMorton(coords.x + 2, coords.y + 2)].x, vm22.x);
+			atomicAdd(vWGrid[partialMorton(coords.x + 2, coords.y + 2)].y, vm22.y);
+
+
+			atomicAdd(mGrid[partialMorton(coords.x + 0, coords.y + 0)], mass * w00);
+			atomicAdd(mGrid[partialMorton(coords.x + 1, coords.y + 0)], mass * w10);
+			atomicAdd(mGrid[partialMorton(coords.x + 2, coords.y + 0)], mass * w20);
+
+			atomicAdd(mGrid[partialMorton(coords.x + 0, coords.y + 1)], mass * w01);
+			atomicAdd(mGrid[partialMorton(coords.x + 1, coords.y + 1)], mass * w11);
+			atomicAdd(mGrid[partialMorton(coords.x + 2, coords.y + 1)], mass * w21);
+
+			atomicAdd(mGrid[partialMorton(coords.x + 0, coords.y + 2)], mass * w02);
+			atomicAdd(mGrid[partialMorton(coords.x + 1, coords.y + 2)], mass * w12);
+			atomicAdd(mGrid[partialMorton(coords.x + 2, coords.y + 2)], mass * w22);
+
+			ivec2 blockCoords = (coords - 1) >> LOG2_G;
+			uint bIndex = atomicAdd(histogram[blockIndex(blockCoords.x, blockCoords.y)], 1);
+			bins[binIndex].blockParticleIndex[pIndex] = bIndex;
+		}
+
+		barrier();
+	}
 	
 	//if (binInWorkgroup < 4 && pIndex < G2)
 	//{
