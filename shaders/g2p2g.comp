@@ -4,37 +4,37 @@
 #extension GL_ARB_shading_language_include: enable
 #include "global.glsl"
 
-layout(std430, binding = BIND_VR) readonly buffer GridVelocitySSBOIn
+layout(set = 0, std430, binding = BIND_VR) readonly buffer GridVelocitySSBOIn
 {
 	vec2 vRGrid[];
 };
 
-layout(std430, binding = BIND_VW) writeonly buffer GridVelocitySSBOOut
+layout(set = 0, std430, binding = BIND_VW) writeonly buffer GridVelocitySSBOOut
 {
 	vec2 vWGrid[];
 };
 
-layout(std430, binding = BIND_M) writeonly buffer GridMassSSBOOut
+layout(set = 0, std430, binding = BIND_M) writeonly buffer GridMassSSBOOut
 {
 	float mGrid[];
 };
 
-layout(std430, binding = BIND_H) writeonly buffer BlockHistogramSSBOOut
+layout(set = 0, std430, binding = BIND_H) writeonly buffer BlockHistogramSSBOOut
 {
 	uint histogram[];
 };
 
-layout(std430, binding = BIND_BC) readonly buffer BlockBinCountSSBOOut
+layout(set = 0, std430, binding = BIND_BC) readonly buffer BlockBinCountSSBOOut
 {
 	uint blockBinCount[];
 };
 
-layout(std430, binding = BIND_BO) readonly buffer BlockBinOffsetsSSBOOut
+layout(set = 0, std430, binding = BIND_BO) readonly buffer BlockBinOffsetsSSBOOut
 {
     uint blockBinOffsets[];
 };
 
-layout(std430, binding = BIND_BR) buffer BinSSBOInOut
+layout(set = 0, std430, binding = BIND_BR) buffer BinSSBOInOut
 {
 	Bin bins[];
 };
@@ -71,7 +71,7 @@ uint morton(uint x, uint y)
 
 uint gridSubblockBlockIndex(uint x, uint y)
 {
-	return x + y * GBlockDimensions;
+	return x * GBlockDimensions + y;
 }
 
 layout(local_size_x = BIN_SIZE, local_size_y = 1, local_size_z = 1) in;

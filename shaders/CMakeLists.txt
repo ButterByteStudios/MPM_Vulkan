@@ -2,6 +2,7 @@ find_program(GLSLC glslc REQUIRED)
 
 set(SHADER_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(SHADER_OUTPUT_DIR ${CMAKE_BINARY_DIR}/shaders)
+set(SHADER_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/global.glsl)
 
 file(GLOB SHADERS
     ${SHADER_SOURCE_DIR}/*.vert
@@ -17,7 +18,7 @@ foreach(shader ${SHADERS})
 
     add_custom_command(
         OUTPUT ${output}
-        COMMAND ${GLSLC} ${shader} -o ${output}
+        COMMAND ${GLSLC} ${shader} -I ${SHADER_INCLUDE_DIR} -o ${output}
         DEPENDS ${shader}
         COMMENT "Compiling shader ${FILENAME}"
         VERBATIM

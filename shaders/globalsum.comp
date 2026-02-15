@@ -3,22 +3,22 @@
 #extension GL_ARB_shading_language_include: enable
 #include "global.glsl"
 
-layout(std430, binding = BIND_BO) writeonly buffer BlockBinOffsetsSSBOOut
+layout(set = 0, std430, binding = BIND_BO) writeonly buffer BlockBinOffsetsSSBOOut
 {
     uint blockBinOffsets[];
 };
 
-layout(std430, binding = BIND_PO) writeonly buffer BlockParticleOffsetsSSBOOut
+layout(set = 0, std430, binding = BIND_PO) writeonly buffer BlockParticleOffsetsSSBOOut
 {
     uint blockParticleOffsets[];
 };
 
-layout(std430, binding = BIND_BS) readonly buffer LocalBinSumOffsetsSSBOIn
+layout(set = 0, std430, binding = BIND_BS) readonly buffer LocalBinSumOffsetsSSBOIn
 {
 	uint localBinSumOffsets[];
 };
 
-layout(std430, binding = BIND_PS) readonly buffer LocalParticleSumOffsetsSSBOIn
+layout(set = 0, std430, binding = BIND_PS) readonly buffer LocalParticleSumOffsetsSSBOIn
 {
 	uint localParticleSumOffsets[];
 };

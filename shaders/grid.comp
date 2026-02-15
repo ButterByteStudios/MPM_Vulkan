@@ -3,17 +3,17 @@
 #extension GL_ARB_shading_language_include: enable
 #include "global.glsl"
 
-layout(std430, binding = BIND_VR) writeonly buffer GridVelocitySSBOClear
+layout(set = 0, std430, binding = BIND_VR) writeonly buffer GridVelocitySSBOClear
 {
 	vec2 vClearGrid[];
 };
 
-layout(std430, binding = BIND_VW) buffer GridVelocitySSBONormalize
+layout(set = 0, std430, binding = BIND_VW) buffer GridVelocitySSBONormalize
 {
 	vec2 vGrid[];
 };
 
-layout(std430, binding = BIND_M) buffer GridMassSSBOIn
+layout(set = 0, std430, binding = BIND_M) buffer GridMassSSBOIn
 {
 	float mGrid[];
 };

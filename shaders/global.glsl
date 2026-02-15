@@ -1,18 +1,19 @@
+#define BIND_VR (0)
+#define BIND_VW (1)
+#define BIND_M (2)
+#define BIND_H (3)
+#define BIND_BC (4)
+#define BIND_BO (5)
+#define BIND_PO (6)
+#define BIND_BS (7)
+#define BIND_PS (8)
+#define BIND_BR (9)
+#define BIND_BW (10)
+#define BIND_SIDR (11)
+#define BIND_SIDW (12)
+
 #define BIND_UBO (0)
-#define BIND_VR (1)
-#define BIND_VW (2)
-#define BIND_M (3)
-#define BIND_H (4)
-#define BIND_BC (5)
-#define BIND_BO (6)
-#define BIND_PO (7)
-#define BIND_BS (8)
-#define BIND_PS (9)
-#define BIND_BR (10)
-#define BIND_BW (11)
-#define BIND_G (12)
-#define BIND_SIDR (13)
-#define BIND_SIDW (14)
+#define BIND_G (1)
 
 #define BIN_SIZE (32)
 
@@ -34,7 +35,7 @@ struct Particle
 	vec2 position;
 };
 
-layout(binding = BIND_UBO) uniform ParameterUBO
+layout(set = 1, binding = BIND_UBO) uniform ParameterUBO
 {
 	float k;
 	float mu;
