@@ -28,7 +28,7 @@
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 800;
 const uint32_t MAX_FRAMES_IN_FLIGHT = 2;
-const uint32_t PARTICLE_COUNT = 1 << 17;
+const uint32_t PARTICLE_COUNT = 1 << 19;
 const uint32_t BIN_KERNEL_SIZE = 1;
 const uint32_t GRID_KERNEL_SIZE = 32;
 const uint32_t BLOCK_KERNEL_SIZE = 16;
@@ -304,9 +304,9 @@ private:
 	float v = 0.40;
 	float rho = 100;
 	float dx = 1.0f;
-	float dt = 0.005f;
-	float size = 0.4f;
-	uint32_t substeps = 3;
+	float dt = 0.003f;
+	float size = 0.5f;
+	uint32_t substeps = 20;
 
 	void mainLoop()
 	{
