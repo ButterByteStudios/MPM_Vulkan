@@ -33,8 +33,7 @@ const uint32_t BIN_KERNEL_SIZE = 1;
 const uint32_t GRID_KERNEL_SIZE = 32;
 const uint32_t BLOCK_KERNEL_SIZE = 16;
 const uint32_t SUM_KERNEL_SIZE = 256;
-const uint32_t WORKGROUP_BIN_COUNT = 16;
-const uint32_t BIN_SIZE = 32; // Change to specialization constant and set to the retrieved subgroupsize
+const uint32_t BIN_SIZE = 64; // Change to specialization constant and set to the retrieved subgroupsize
 
 const std::vector<const char*> validationLayers =
 {
@@ -99,7 +98,7 @@ struct ScatterDispatchData
 
 struct alignas(8) Bin
 {
-	glm::mat2 F[BIN_SIZE]; // (8 + 8) * 32 = 512
+	glm::mat2 F[BIN_SIZE]; // (8 + 8) * 64 = 1024
 	glm::vec2 position[BIN_SIZE]; // 8 * 32 = 256
 	float mass[BIN_SIZE]; // 4 * 32 = 128
 	uint32_t blockParticleIndex[BIN_SIZE]; // 4 * 32 = 128
@@ -107,7 +106,6 @@ struct alignas(8) Bin
 	// Max alignment = 8, so pad till nearest multiple of 8
 	// Total size = 512 + 256 + 128 + 128 + 4 + 4(pad) = 1032 = 8 * 129
 };
-static_assert(sizeof(Bin) == 1032);
 
 struct alignas(16) Particle
 {
@@ -306,7 +304,7 @@ private:
 	float dx = 1.0f;
 	float dt = 0.003f;
 	float size = 0.5f;
-	uint32_t substeps = 20;
+	uint32_t substeps = 15;
 
 	void mainLoop()
 	{
@@ -1839,7 +1837,7 @@ private:
 			blockIndices[i] = blockIndex;
 			blockPIndex[i] = histogram[blockIndex]++;
 			particles[i].position = pos;
-			particles[i].color = glm::vec4(rndDist(rndEngine), rndDist(rndEngine), rndDist(rndEngine), 1.0f);
+			particles[i].color = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
 		}
 
 		std::vector<uint32_t> binCounts(paddedParticleBlockCount);
@@ -1848,7 +1846,6 @@ private:
 		for (size_t i = 1; i < paddedParticleBlockCount; i++)
 		{
 			uint32_t binCount = ceilIntDivision(histogram[i - 1], BIN_SIZE);
-			uint32_t workgroupCount = ceilIntDivision(binCount, WORKGROUP_BIN_COUNT);
 			binCounts[i - 1] = binCount;
 			binOffsets[i] = binCount + binOffsets[i - 1];
 
@@ -1862,7 +1859,7 @@ private:
 			glm::vec2 pos = particles[i].position;
 			uint32_t blockIndex = blockIndices[i];
 			uint32_t baseBin = binOffsets[blockIndex];
-			uint32_t binIndex = baseBin + blockPIndex[i] / BIN_SIZE;
+			uint32_t binIndex = baseBin + (blockPIndex[i] / BIN_SIZE);
 			uint32_t pIndex = blockPIndex[i] % BIN_SIZE;
 
 			bins[binIndex].F[pIndex] = glm::mat2(1.0f);

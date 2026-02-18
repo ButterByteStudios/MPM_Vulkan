@@ -15,9 +15,9 @@
 #define BIND_UBO (0)
 #define BIND_G (1)
 
-#define BIN_SIZE (32)
+#define BIN_SIZE (64)
 
-#define LOG2_BIN_SIZE (5)
+#define LOG2_BIN_SIZE (6)
 #define BIN_MASK (BIN_SIZE - 1u)
 
 struct Bin

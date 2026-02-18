@@ -91,46 +91,43 @@ shared float shMGrid[GBlock];
 
 void main()
 {
-	const float dx = ubo.dx;
-	const float invDx = ubo.invDx;
-	const float dt = ubo.dt;
-	const uint dimensions = ubo.dimensions;
-	const float k = ubo.k;
-	const float mu = ubo.mu;
-	const float rho = ubo.rho;
+	float dx = ubo.dx;
+	float invDx = ubo.invDx;
+	float dt = ubo.dt;
+	uint dimensions = ubo.dimensions;
+	float k = ubo.k;
+	float mu = ubo.mu;
+	float rho = ubo.rho;
 
 	uint pIndex = gl_LocalInvocationID.x;
 	ivec2 gridBlockCoords = ivec2(gl_WorkGroupID.xy);
 	ivec2 gridBlockCellCoords = gridBlockCoords * G;
 
 	uint block = blockIndex(gridBlockCoords.x, gridBlockCoords.y);
-	uint baseBin = blockBinOffsets[block];
 	uint binCount = blockBinCount[block];
 
 	if (binCount == 0)
 	{
 		return;
 	}
+	uint baseBin = blockBinOffsets[block];
 
 	// Subblock x/y represent the subblock offsets determined by the bin
-	uint subblockCellY = (pIndex >> 4) * G; // binInWorkgroup / 16
+	uint subblockIndex = pIndex >> 4;
+	uint subblockCellX = (subblockIndex & 1) * G; // binInWorkgroup % 32
+	uint subblockCellY = (subblockIndex >> 1) * G; // binInWorkgroup / 32
 	uint localIndex = pIndex & 15u; // pIndex % 16
 
 	// Local x and local y are ordered like this due to the collumn major ordering of the gridblocks in the partial morton
 	uint blockLocalX = localIndex >> LOG2_G; 
 	uint blockLocalY = localIndex & G_MASK;
 
-	uint gridSubblockCellIndex1 = morton(gridBlockCellCoords.x, gridBlockCellCoords.y + subblockCellY) + localIndex;
-	uint gridSubblockCellIndex2 = morton(gridBlockCellCoords.x + G, gridBlockCellCoords.y + subblockCellY) + localIndex;
-	uint localSubblockIndex1 = gridSubblockBlockIndex(blockLocalX, blockLocalY + subblockCellY);
-	uint localSubblockIndex2 = gridSubblockBlockIndex(blockLocalX + G, blockLocalY + subblockCellY);
+	uint gridSubblockCellIndex = morton(gridBlockCellCoords.x + subblockCellX, gridBlockCellCoords.y + subblockCellY) + localIndex;
+	uint localSubblockIndex = gridSubblockBlockIndex(blockLocalX + subblockCellX, blockLocalY + subblockCellY);
 
-	shVRGrid[localSubblockIndex1] = vRGrid[gridSubblockCellIndex1];
-	shVRGrid[localSubblockIndex2] = vRGrid[gridSubblockCellIndex2];
-	shVWGrid[localSubblockIndex1] = vec2(0);
-	shVWGrid[localSubblockIndex2] = vec2(0);
-	shMGrid[localSubblockIndex1] = 0;
-	shMGrid[localSubblockIndex2] = 0;
+	shVRGrid[localSubblockIndex] = vRGrid[gridSubblockCellIndex];
+	shVWGrid[localSubblockIndex] = vec2(0);
+	shMGrid[localSubblockIndex] = 0;
 
 	barrier();
 	
@@ -353,10 +350,7 @@ void main()
 
 	barrier();
 	
-	atomicAdd(vWGrid[gridSubblockCellIndex1].x, shVWGrid[localSubblockIndex1].x);
-	atomicAdd(vWGrid[gridSubblockCellIndex1].y, shVWGrid[localSubblockIndex1].y);
-	atomicAdd(vWGrid[gridSubblockCellIndex2].x, shVWGrid[localSubblockIndex2].x);
-	atomicAdd(vWGrid[gridSubblockCellIndex2].y, shVWGrid[localSubblockIndex2].y);
-	atomicAdd(mGrid[gridSubblockCellIndex1], shMGrid[localSubblockIndex1]);
-	atomicAdd(mGrid[gridSubblockCellIndex2], shMGrid[localSubblockIndex2]);
+	atomicAdd(vWGrid[gridSubblockCellIndex].x, shVWGrid[localSubblockIndex].x);
+	atomicAdd(vWGrid[gridSubblockCellIndex].y, shVWGrid[localSubblockIndex].y);
+	atomicAdd(mGrid[gridSubblockCellIndex], shMGrid[localSubblockIndex]);
 }
