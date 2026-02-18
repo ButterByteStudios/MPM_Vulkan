@@ -28,7 +28,7 @@
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 800;
 const uint32_t MAX_FRAMES_IN_FLIGHT = 2;
-const uint32_t PARTICLE_COUNT = 1 << 16;
+const uint32_t PARTICLE_COUNT = 1 << 19;
 const uint32_t BIN_KERNEL_SIZE = 1;
 const uint32_t GRID_KERNEL_SIZE = 32;
 const uint32_t BLOCK_KERNEL_SIZE = 16;
@@ -1829,7 +1829,7 @@ private:
 
 			glm::vec2 cellPos = glm::vec2(x, y);
 			glm::vec2 pos = cellPos * dx;
-			glm::ivec2 coords = glm::ivec2(glm::floor(cellPos - 1.5f));
+			glm::ivec2 coords = glm::ivec2(cellPos - 1.5f);
 			glm::ivec2 blockCoords = coords >> 2;
 			uint32_t blockIndex = blockCoords.x + blockCoords.y * particleBlockDimensions;
 
