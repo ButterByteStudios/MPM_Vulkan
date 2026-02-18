@@ -63,7 +63,7 @@ const bool enableValidationLayers = false;
 const bool enableValidationLayers = true;
 #endif
 
-struct UniformBufferObject
+struct alignas(4) ParameterUBO
 {
 	float k;
 	float mu;
@@ -74,6 +74,13 @@ struct UniformBufferObject
 	uint32_t blockDimensions;
 	float dt;
 	float invDt;
+};
+
+struct alignas(8) CameraUBO
+{
+	glm::vec2 pos;
+	float aspectRatio;
+	float zoom;
 };
 
 struct ScatterDispatchData
@@ -287,9 +294,13 @@ private:
 	std::vector<VkBuffer> scatterIndirectDispatchBuffers;
 	std::vector<VkDeviceMemory> scatterIndirectDispatchBuffersMemory;
 
-	std::vector<VkBuffer> uniformBuffers;
-	std::vector<VkDeviceMemory> uniformBuffersMemory;
-	std::vector<void*> uniformBuffersMapped;
+	std::vector<VkBuffer> parameterBuffers;
+	std::vector<VkDeviceMemory> parameterBuffersMemory;
+	std::vector<void*> parameterBuffersMapped;
+
+	std::vector<VkBuffer> cameraBuffers;
+	std::vector<VkDeviceMemory> cameraBuffersMemory;
+	std::vector<void*> cameraBuffersMapped;
 
 	uint32_t dimensions = 1 << 7; // Max: 32748. Min: 128. Determined by SUM_KERNEL_SIZE (the block kernels need to atleast have one filled workgroup and max 256 filled workgroups (determined by the localsum workgroupsize))
 	uint32_t gridBlockDimensions = dimensions >> 2;
@@ -305,6 +316,8 @@ private:
 	float dt = 0.003f;
 	float size = 0.5f;
 	uint32_t substeps = 15;
+	glm::vec2 cameraPos = glm::vec2(0);
+	float zoom = 5;
 
 	void mainLoop()
 	{
@@ -554,18 +567,29 @@ private:
 
 	void updateUniformBuffer(uint32_t currentImage)
 	{
-		UniformBufferObject ubo{};
-		ubo.k = E / (3.0f - 6.0f * v);
-		ubo.mu = E / (2.0f * (1.0f + v));
-		ubo.rho = rho;
-		ubo.dx = dx;
-		ubo.invDx = 1.0f / dx;
-		ubo.dimensions = dimensions;
-		ubo.blockDimensions = particleBlockDimensions;
-		ubo.dt = dt;
-		ubo.invDt = 1.0f / dt;
+		ParameterUBO pUBO{};
+		pUBO.k = E / (3.0f - 6.0f * v);
+		pUBO.mu = E / (2.0f * (1.0f + v));
+		pUBO.rho = rho;
+		pUBO.dx = dx;
+		pUBO.invDx = 1.0f / dx;
+		pUBO.dimensions = dimensions;
+		pUBO.blockDimensions = particleBlockDimensions;
+		pUBO.dt = dt;
+		pUBO.invDt = 1.0f / dt;
 
-		memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
+		memcpy(parameterBuffersMapped[currentImage], &pUBO, sizeof(pUBO));
+
+		int width;
+		int height;
+		glfwGetFramebufferSize(window, &width, &height);
+
+		CameraUBO cUBO{};
+		cUBO.aspectRatio = (float)height / (float)width;
+		cUBO.pos = cameraPos;
+		cUBO.zoom = zoom;
+
+		memcpy(cameraBuffersMapped[currentImage], &cUBO, sizeof(cUBO));
 	}
 
 	std::vector<const char*> getRequiredExtensions()
@@ -862,10 +886,11 @@ private:
 			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1.0f}
 		};
 
-		graphicsDescriptorAllocator.initPool(device, MAX_FRAMES_IN_FLIGHT, sizes);
+		graphicsDescriptorAllocator.initPool(device, MAX_FRAMES_IN_FLIGHT * 2, sizes);
 
 		dsl::DescriptorLayoutBuilder builder{};
 		builder.addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+		builder.addBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
 
 		builder.build(device, VK_SHADER_STAGE_VERTEX_BIT, graphicsDescriptorSetLayout);
 
@@ -876,22 +901,35 @@ private:
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
-			VkWriteDescriptorSet descriptorWrite{};
+			std::vector<VkWriteDescriptorSet> descriptorWrites(2);
 
-			VkDescriptorBufferInfo uniformBufferInfo{};
-			uniformBufferInfo.buffer = uniformBuffers[i];
-			uniformBufferInfo.offset = 0;
-			uniformBufferInfo.range = sizeof(UniformBufferObject);
+			VkDescriptorBufferInfo parameterBufferInfo{};
+			parameterBufferInfo.buffer = parameterBuffers[i];
+			parameterBufferInfo.offset = 0;
+			parameterBufferInfo.range = sizeof(ParameterUBO);
 
-			descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			descriptorWrite.dstSet = graphicsDescriptorSets[i];
-			descriptorWrite.dstBinding = 0;
-			descriptorWrite.dstArrayElement = 0;
-			descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-			descriptorWrite.descriptorCount = 1;
-			descriptorWrite.pBufferInfo = &uniformBufferInfo;
+			descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[0].dstSet = graphicsDescriptorSets[i];
+			descriptorWrites[0].dstBinding = 0;
+			descriptorWrites[0].dstArrayElement = 0;
+			descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+			descriptorWrites[0].descriptorCount = 1;
+			descriptorWrites[0].pBufferInfo = &parameterBufferInfo;
 
-			vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+			VkDescriptorBufferInfo cameraBufferInfo{};
+			cameraBufferInfo.buffer = cameraBuffers[i];
+			cameraBufferInfo.offset = 0;
+			cameraBufferInfo.range = sizeof(CameraUBO);
+
+			descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[1].dstSet = graphicsDescriptorSets[i];
+			descriptorWrites[1].dstBinding = 1;
+			descriptorWrites[1].dstArrayElement = 0;
+			descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+			descriptorWrites[1].descriptorCount = 1;
+			descriptorWrites[1].pBufferInfo = &cameraBufferInfo;
+
+			vkUpdateDescriptorSets(device, (uint32_t)descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
 		}
 	}
 
@@ -1290,9 +1328,9 @@ private:
 			std::array<VkWriteDescriptorSet, 2> descriptorWrites{};
 
 			VkDescriptorBufferInfo uniformBufferInfo{};
-			uniformBufferInfo.buffer = uniformBuffers[i];
+			uniformBufferInfo.buffer = parameterBuffers[i];
 			uniformBufferInfo.offset = 0;
-			uniformBufferInfo.range = sizeof(UniformBufferObject);
+			uniformBufferInfo.range = sizeof(ParameterUBO);
 
 			binding = 0;
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -2051,16 +2089,23 @@ private:
 
 	void createUniformBuffers()
 	{
-		VkDeviceSize bufferSize = sizeof(UniformBufferObject);
+		VkDeviceSize bufferSize = sizeof(ParameterUBO);
 
-		uniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
-		uniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
-		uniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
+		parameterBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+		parameterBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
+		parameterBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
+
+		cameraBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+		cameraBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
+		cameraBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
-			createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, uniformBuffers[i], uniformBuffersMemory[i]);
-			vkMapMemory(device, uniformBuffersMemory[i], 0, bufferSize, 0, &uniformBuffersMapped[i]);
+			createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, parameterBuffers[i], parameterBuffersMemory[i]);
+			vkMapMemory(device, parameterBuffersMemory[i], 0, bufferSize, 0, &parameterBuffersMapped[i]);
+
+			createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, cameraBuffers[i], cameraBuffersMemory[i]);
+			vkMapMemory(device, cameraBuffersMemory[i], 0, bufferSize, 0, &cameraBuffersMapped[i]);
 		}
 	}
 
@@ -2425,8 +2470,11 @@ private:
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
-			vkDestroyBuffer(device, uniformBuffers[i], nullptr);
-			vkFreeMemory(device, uniformBuffersMemory[i], nullptr);
+			vkDestroyBuffer(device, parameterBuffers[i], nullptr);
+			vkFreeMemory(device, parameterBuffersMemory[i], nullptr);
+
+			vkDestroyBuffer(device, cameraBuffers[i], nullptr);
+			vkFreeMemory(device, cameraBuffersMemory[i], nullptr);
 		}
 
 		graphicsDescriptorAllocator.destroyPool(device);
