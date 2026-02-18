@@ -68,6 +68,8 @@ uint morton(uint x, uint y)
 #define G2 (G * G)
 #define GBlockDimensions (G * 2)
 #define GBlock (GBlockDimensions * GBlockDimensions)
+#define HALO_MAX (GBlockDimensions - 2)
+#define HALO_MIN (2)
 
 uint gridSubblockBlockIndex(uint x, uint y)
 {
@@ -100,8 +102,6 @@ shared float s_wy[BIN_SIZE][3];
 shared float s_m[BIN_SIZE];
 shared uint s_minx[BIN_SIZE];
 shared uint s_miny[BIN_SIZE];
-shared uint s_maxx[BIN_SIZE];
-shared uint s_maxy[BIN_SIZE];
 
 void main()
 {
@@ -128,8 +128,8 @@ void main()
 
 	// Subblock x/y represent the subblock offsets determined by the bin
 	uint subblockIndex = localId >> 4;
-	uint subblockCellX = (subblockIndex & 1) * G; // binInWorkgroup % 32
-	uint subblockCellY = (subblockIndex >> 1) * G; // binInWorkgroup / 32
+	uint subblockCellX = (subblockIndex & 1) * G; // binInWorkgroup % 2
+	uint subblockCellY = (subblockIndex >> 1) * G; // binInWorkgroup / 2
 	uint localIndex = localId & 15u; // localId % 16
 
 	// Local x and local y are ordered like this due to the collumn major ordering of the gridblocks in the partial morton
@@ -309,18 +309,6 @@ void main()
 
 			vec2 vm = v * mass;
 
-			vec2 vm00 = w00 * (vm + affine * d00);
-			vec2 vm10 = w10 * (vm + affine * d10);
-			vec2 vm20 = w20 * (vm + affine * d20);	
-			
-			vec2 vm01 = w01 * (vm + affine * d01);
-			vec2 vm11 = w11 * (vm + affine * d11);
-			vec2 vm21 = w21 * (vm + affine * d21);	
-			
-			vec2 vm02 = w02 * (vm + affine * d02);
-			vec2 vm12 = w12 * (vm + affine * d12);
-			vec2 vm22 = w22 * (vm + affine * d22);
-
 			s_vm[localId] = vm;
 			s_col0[localId] = affine[0];
 			s_col1[localId] = affine[1];
@@ -333,9 +321,9 @@ void main()
 			s_dy[localId][1] = dy1;
 			s_dy[localId][2] = dy2;
 			
-			s_wx[localId][0] = vw0;
-			s_wx[localId][1] = vw1;
-			s_wx[localId][2] = vw2;
+			s_wx[localId][0] = uw0;
+			s_wx[localId][1] = uw1;
+			s_wx[localId][2] = uw2;
 
 			s_wy[localId][0] = vw0;
 			s_wy[localId][1] = vw1;
@@ -344,59 +332,45 @@ void main()
 			s_m[localId] = mass;
 			s_minx[localId] = coordsInBlock.x;
 			s_miny[localId] = coordsInBlock.y;
-			s_maxx[localId] = coordsInBlock.x + 2;
-			s_maxy[localId] = coordsInBlock.y + 2;
-			
-			atomicAdd(s_vWGrid[gridSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0)].x, vm00.x);
-			atomicAdd(s_vWGrid[gridSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0)].y, vm00.y);
-			atomicAdd(s_vWGrid[gridSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 0)].x, vm10.x);
-			atomicAdd(s_vWGrid[gridSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 0)].y, vm10.y);
-			atomicAdd(s_vWGrid[gridSubblockBlockIndex(coordsInBlock.x + 2, coordsInBlock.y + 0)].x, vm20.x);
-			atomicAdd(s_vWGrid[gridSubblockBlockIndex(coordsInBlock.x + 2, coordsInBlock.y + 0)].y, vm20.y);
-
-			atomicAdd(s_vWGrid[gridSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 1)].x, vm01.x);
-			atomicAdd(s_vWGrid[gridSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 1)].y, vm01.y);
-			atomicAdd(s_vWGrid[gridSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 1)].x, vm11.x);
-			atomicAdd(s_vWGrid[gridSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 1)].y, vm11.y);
-			atomicAdd(s_vWGrid[gridSubblockBlockIndex(coordsInBlock.x + 2, coordsInBlock.y + 1)].x, vm21.x);
-			atomicAdd(s_vWGrid[gridSubblockBlockIndex(coordsInBlock.x + 2, coordsInBlock.y + 1)].y, vm21.y);
-
-			atomicAdd(s_vWGrid[gridSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 2)].x, vm02.x);
-			atomicAdd(s_vWGrid[gridSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 2)].y, vm02.y);
-			atomicAdd(s_vWGrid[gridSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 2)].x, vm12.x);
-			atomicAdd(s_vWGrid[gridSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 2)].y, vm12.y);
-			atomicAdd(s_vWGrid[gridSubblockBlockIndex(coordsInBlock.x + 2, coordsInBlock.y + 2)].x, vm22.x);
-			atomicAdd(s_vWGrid[gridSubblockBlockIndex(coordsInBlock.x + 2, coordsInBlock.y + 2)].y, vm22.y);
-
-
-			atomicAdd(s_mGrid[gridSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0)], mass * w00);
-			atomicAdd(s_mGrid[gridSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 0)], mass * w10);
-			atomicAdd(s_mGrid[gridSubblockBlockIndex(coordsInBlock.x + 2, coordsInBlock.y + 0)], mass * w20);
-
-			atomicAdd(s_mGrid[gridSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 1)], mass * w01);
-			atomicAdd(s_mGrid[gridSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 1)], mass * w11);
-			atomicAdd(s_mGrid[gridSubblockBlockIndex(coordsInBlock.x + 2, coordsInBlock.y + 1)], mass * w21);
-
-			atomicAdd(s_mGrid[gridSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 2)], mass * w02);
-			atomicAdd(s_mGrid[gridSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 2)], mass * w12);
-			atomicAdd(s_mGrid[gridSubblockBlockIndex(coordsInBlock.x + 2, coordsInBlock.y + 2)], mass * w22);
 
 			uvec2 blockCoords = (coords - 1) >> LOG2_G;
 			uint bIndex = atomicAdd(histogram[blockIndex(blockCoords.x, blockCoords.y)], 1);
 			bins[binIndex].blockParticleIndex[localId] = bIndex;
 		}
 
-		//barrier();
+		barrier();
 
-		//for (uint p = 0; p < BIN_SIZE; p++)
-		//{
-	//		
-		//}
+		for (uint p = 0; p < binParticleCount; p++)
+		{
+			uint dx = blockX - s_minx[p];
+			uint dy = blockY - s_miny[p];
+			if (dx < 0 || dx >= 3 ||
+				dy < 0 || dy >= 3)
+			{
+				continue;
+			}
+
+			float w = s_wx[p][dx] * s_wy[p][dy];
+			s_vWGrid[localSubblockIndex] += w * (s_vm[p] + s_col0[p] * s_dx[p][dx] + s_col1[p] * s_dy[p][dy]);
+			s_mGrid[localSubblockIndex] += w * s_m[p];
+		}
+
+		barrier();
 	}
 
 	barrier();
-	
-	atomicAdd(vWGrid[gridSubblockCellIndex].x, s_vWGrid[localSubblockIndex].x);
-	atomicAdd(vWGrid[gridSubblockCellIndex].y, s_vWGrid[localSubblockIndex].y);
-	atomicAdd(mGrid[gridSubblockCellIndex], s_mGrid[localSubblockIndex]);
+
+	// Check this, halo region is too wide
+	if (blockX > 2 && blockX < 5 && 
+		blockY > 2 && blockY < 5)
+	{
+		vWGrid[gridSubblockCellIndex] = s_vWGrid[localSubblockIndex];
+		mGrid[gridSubblockCellIndex] = s_mGrid[localSubblockIndex];
+	}
+	else
+	{
+		atomicAdd(vWGrid[gridSubblockCellIndex].x, s_vWGrid[localSubblockIndex].x);
+		atomicAdd(vWGrid[gridSubblockCellIndex].y, s_vWGrid[localSubblockIndex].y);
+		atomicAdd(mGrid[gridSubblockCellIndex], s_mGrid[localSubblockIndex]);
+	}
 }

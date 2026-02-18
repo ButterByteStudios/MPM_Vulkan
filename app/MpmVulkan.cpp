@@ -490,7 +490,6 @@ private:
 		graphicsSubmitInfo.signalSemaphoreCount = 1;
 		graphicsSubmitInfo.pSignalSemaphores = &imageSubmitSemaphores[imageIndex];
 
-		// VKRESULTDEVICELOST (undefined behavior on the gpu) Check out the substep stuff further
 		if (vkQueueSubmit(graphicsQueue, 1, &graphicsSubmitInfo, inFlightFences[currentFrame]) != VK_SUCCESS)
 		{
 			throw std::runtime_error("Failed to submit draw command buffer.");
