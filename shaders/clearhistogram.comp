@@ -1,23 +1,14 @@
 #version 450
 
-layout(binding = 0) uniform ParameterUBO
-{
-	float k;
-	float mu;
-	float rho;
-	float dx;
-	float invDx;
-	uint dimensions;
-	uint blockDimensions;
-	float dt;
-} ubo;
+#extension GL_ARB_shading_language_include: enable
+#include "global.glsl"
 
-layout(std430, binding = 4) buffer BlockHistogramSSBO
+layout(set = 0, std430, binding = BIND_H) writeonly buffer BlockHistogramSSBOOut
 {
 	uint histogram[];
 };
 
-layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+layout(set = 0, local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 void main()
 {
