@@ -1,5 +1,5 @@
 #include <vulkan/vulkan.h>
-#include <span>;
+#include <span>
 
 namespace dsl
 {

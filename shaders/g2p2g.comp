@@ -180,21 +180,13 @@ void main()
 					v02 + v12 + v22;
 
 			mat2 B = mat2(0);
-			B[0][0] = (v00.x + v01.x + v02.x) * dx0 +
-			 		  (v10.x + v11.x + v12.x) * dx1 + 
-					  (v20.x + v21.x + v22.x) * dx2;
+			B[0] = (v00 + v01 + v02) * dx0 +
+			 	(v10 + v11 + v12) * dx1 + 
+				(v20 + v21 + v22) * dx2;
 
-			B[1][0] = dy0 * (v00.x + v10.x + v20.x) +
-					  dy1 * (v01.x + v11.x + v21.x) +
-					  dy2 * (v02.x + v12.x + v22.x);
-
-			B[0][1] = (v00.y + v01.y + v02.y) * dx0 + 
-					  (v10.y + v11.y + v12.y) * dx1 + 
-					  (v20.y + v21.y + v22.y) * dx2;
-					  
-			B[1][1] = dy0 * (v00.y + v10.y + v20.y) +
-					  dy1 * (v01.y + v11.y + v21.y) +
-					  dy2 * (v02.y + v12.y + v22.y);
+			B[1] = dy0 * (v00 + v10 + v20) +
+				dy1 * (v01 + v11 + v21) +
+				dy2 * (v02 + v12 + v22);
 
 			float inv_D = 4.0 * invDx * invDx;
 			mat2 C = B * inv_D;
@@ -245,7 +237,6 @@ void main()
 			float w12 = uw1 * vw2;
 			float w22 = uw2 * vw2;
 
-
 			mat2 F_T = transpose(F);
 			mat2 b = F * F_T;
 			float tr_b = b[0][0] + b[1][1];
@@ -264,17 +255,25 @@ void main()
 
 			vec2 vm = v * mass;
 
-			vec2 vm00 = w00 * (vm + affine[0] * dx0 + affine[1] * dy0);
-			vec2 vm10 = w10 * (vm + affine[0] * dx1 + affine[1] * dy0);
-			vec2 vm20 = w20 * (vm + affine[0] * dx2 + affine[1] * dy0);	
+			vec2 ax0 = affine[0] * dx0;
+			vec2 ax1 = affine[0] * dx1;
+			vec2 ax2 = affine[0] * dx2;
+
+			vec2 ay0 = affine[1] * dy0;
+			vec2 ay1 = affine[1] * dy1;
+			vec2 ay2 = affine[1] * dy2;
+
+			vec2 vm00 = w00 * (vm + ax0 + ay0);
+			vec2 vm10 = w10 * (vm + ax1 + ay0);
+			vec2 vm20 = w20 * (vm + ax2 + ay0);	
 			
-			vec2 vm01 = w01 * (vm + affine[0] * dx0 + affine[1] * dy1);
-			vec2 vm11 = w11 * (vm + affine[0] * dx1 + affine[1] * dy1);
-			vec2 vm21 = w21 * (vm + affine[0] * dx2 + affine[1] * dy1);	
+			vec2 vm01 = w01 * (vm + ax0 + ay1);
+			vec2 vm11 = w11 * (vm + ax1 + ay1);
+			vec2 vm21 = w21 * (vm + ax2 + ay1);	
 			
-			vec2 vm02 = w02 * (vm + affine[0] * dx0 + affine[1] * dy2);
-			vec2 vm12 = w12 * (vm + affine[0] * dx1 + affine[1] * dy2);
-			vec2 vm22 = w22 * (vm + affine[0] * dx2 + affine[1] * dy2);
+			vec2 vm02 = w02 * (vm + ax0 + ay2);
+			vec2 vm12 = w12 * (vm + ax1 + ay2);
+			vec2 vm22 = w22 * (vm + ax2 + ay2);
 
 			atomicAdd(shVWGrid[gridSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0)].x, vm00.x);
 			atomicAdd(shVWGrid[gridSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0)].y, vm00.y);
@@ -317,8 +316,6 @@ void main()
 	}
 
 	barrier();
-
-	// Should be  2 <= x < 6 so a 4x4 grid is untouched by other blocks
 
 	atomicAdd(vWGrid[gridSubblockCellIndex].x, shVWGrid[localSubblockIndex].x);
 	atomicAdd(vWGrid[gridSubblockCellIndex].y, shVWGrid[localSubblockIndex].y);

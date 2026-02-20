@@ -4,11 +4,11 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/integer.hpp>
 #include <vulkan/vulkan.h>
-#include <vulkan/vk_enum_string_helper.h>
 
 #include <descriptorAllocator.h>
 #include <descriptorLayoutBuilder.h>
 #include <deviceBuilder.h>
+#include <keyInput.h>
 
 #include <filesystem>
 #include <iostream>
@@ -28,7 +28,7 @@
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 800;
 const uint32_t MAX_FRAMES_IN_FLIGHT = 2;
-const uint32_t PARTICLE_COUNT = 1 << 19;
+const uint32_t PARTICLE_COUNT = 1 << 16;
 const uint32_t BIN_KERNEL_SIZE = 1;
 const uint32_t GRID_KERNEL_SIZE = 32;
 const uint32_t BLOCK_KERNEL_SIZE = 16;
@@ -186,11 +186,20 @@ public:
 	}
 
 private:
+	std::vector<int> keys{
+		GLFW_KEY_W,
+		GLFW_KEY_A,
+		GLFW_KEY_S,
+		GLFW_KEY_D
+	};
+
 	GLFWwindow* window;
 	VkInstance instance;
 	VkDebugUtilsMessengerEXT debugMessenger;
 	VkPhysicalDevice physicalDevice;
 	VkDevice device;
+
+	KeyInput input{ keys };
 
 	VkQueue computeQueue;
 	uint32_t computeFamilyIndex;
@@ -309,22 +318,31 @@ private:
 	uint32_t paddedParticleBlockCount = paddedParticleBlockDimensions * paddedParticleBlockDimensions; // Padded to nearest power of two (gridblockdimensions * gridblockdimensions)
 	uint32_t binCount = particleBlockDimensions * particleBlockDimensions + ceilIntDivision(PARTICLE_COUNT, BIN_SIZE); // Impossibly worst case scenario. Every bin is full and all blocks have one non-full bin
 
+	double lastTime = 0;
+	double lastFrameTime = 0;
+
 	float E = 1000000;
 	float v = 0.40;
 	float rho = 100;
 	float dx = 1.0f;
 	float dt = 0.003f;
 	float size = 0.5f;
+	float speed = 0.1f;
 	uint32_t substeps = 15;
 	glm::vec2 cameraPos = glm::vec2(0);
-	float zoom = 5;
+	float zoom = 1;
 
 	void mainLoop()
 	{
 		while (!glfwWindowShouldClose(window))
 		{
 			glfwPollEvents();
+			getInput();
 			drawFrame();
+
+			double currentTime = glfwGetTime();
+			lastFrameTime = currentTime - lastTime;
+			lastTime = currentTime;
 		}
 
 		vkDeviceWaitIdle(device);
@@ -337,8 +355,11 @@ private:
 		glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
 		window = glfwCreateWindow(WIDTH, HEIGHT, "MpmVulkan", nullptr, nullptr);
+		KeyInput::setupKeyInputs(window);
+
 		glfwSetWindowUserPointer(window, this);
 		glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
+		lastTime = glfwGetTime();
 	}
 
 	void initVulkan()
@@ -444,6 +465,14 @@ private:
 
 			std::cout << (containsExtension ? "Available:" : "Unavailable:") << ' ' << requiredExtension << '\n';
 		}
+	}
+
+	void getInput()
+	{
+		int y = input.getIsKeyDown(GLFW_KEY_W) - input.getIsKeyDown(GLFW_KEY_S);
+		int x = input.getIsKeyDown(GLFW_KEY_D) - input.getIsKeyDown(GLFW_KEY_A);
+		
+		cameraPos += glm::vec2(x, y) * speed;
 	}
 
 	void drawFrame()
@@ -576,7 +605,7 @@ private:
 		pUBO.dimensions = dimensions;
 		pUBO.blockDimensions = particleBlockDimensions;
 		pUBO.dt = dt;
-		pUBO.invDt = 1.0f / dt;
+		pUBO.invDt = 1.0f / pUBO.dt;
 
 		memcpy(parameterBuffersMapped[currentImage], &pUBO, sizeof(pUBO));
 
