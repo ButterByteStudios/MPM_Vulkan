@@ -1,5 +1,5 @@
 add_library(ldl STATIC
-	"deviceBuilder.cpp"
+	"src/deviceBuilder.cpp"
 )
 
 target_include_directories(ldl

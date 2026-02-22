@@ -8,11 +8,6 @@ layout(set = 0, std430, binding = BIND_BS) buffer LocalBinSumSSBOInOut
 	uint localBinSum[];
 };
 
-layout(set = 0, std430, binding = BIND_PS) buffer LocalParticleSumSSBOInOut
-{
-	uint localParticleSum[];
-};
-
 // Works on blocks of 128 * 2, so N / 256 workgroups. This always has 1 workgroup
 #define W (128)
 #define W2 (W*2)
@@ -21,7 +16,6 @@ layout(set = 0, std430, binding = BIND_PS) buffer LocalParticleSumSSBOInOut
 layout(local_size_x = W, local_size_y = 1, local_size_z = 1) in;
 
 shared uint shBin[W2];
-shared uint shParticle[W2];
 
 void main()
 {
@@ -29,9 +23,6 @@ void main()
 
 	shBin[2 * localId] = localBinSum[2 * localId];
 	shBin[2 * localId + 1] = localBinSum[2 * localId + 1];
-
-	shParticle[2 * localId] = localParticleSum[2 * localId];
-	shParticle[2 * localId + 1] = localParticleSum[2 * localId + 1];
 
 	barrier();
 
@@ -42,7 +33,6 @@ void main()
 		if (i < W2)
 		{
 			shBin[i] += shBin[i - offset];
-			shParticle[i] += shParticle[i - offset];
 		}
 		barrier();
 	}
@@ -51,7 +41,6 @@ void main()
 	if (localId == 0)
 	{
 		shBin[W2m1] = 0;
-		shParticle[W2m1] = 0;
 	}
 
 	barrier();
@@ -65,17 +54,10 @@ void main()
 			uint tBin = shBin[i - offset];
 			shBin[i - offset] = shBin[i];
 			shBin[i] += tBin;
-
-			uint tParticle = shParticle[i - offset];
-			shParticle[i - offset] = shParticle[i];
-			shParticle[i] += tParticle;
 		}
 		barrier();
 	}
 
 	localBinSum[2 * localId] = shBin[2 * localId];
 	localBinSum[2 * localId + 1] = shBin[2 * localId + 1];
-
-	localParticleSum[2 * localId] = shParticle[2 * localId];
-	localParticleSum[2 * localId + 1] = shParticle[2 * localId + 1];
 }

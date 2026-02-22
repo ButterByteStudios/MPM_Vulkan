@@ -145,23 +145,23 @@ void main()
 			ivec2 coords = ivec2(cellPosition - 0.5);
 			ivec2 coordsInBlock = coords - gridBlockCellCoords;
 			
-			vec2 d = cellPosition - coords;
+			vec2 d = coords - cellPosition;
 
-			float dx0 = -d.x * dx;
-			float dx1 = (1 - d.x) * dx;
-			float dx2 = (2 - d.x) * dx;
+			float dx0 = d.x * dx;
+			float dx1 = (1 + d.x) * dx;
+			float dx2 = (2 + d.x) * dx;
 
-			float dy0 = -d.y * dx;
-			float dy1 = (1 - d.y) * dx;
-			float dy2 = (2 - d.y) * dx;
+			float dy0 = d.y * dx;
+			float dy1 = (1 + d.y) * dx;
+			float dy2 = (2 + d.y) * dx;
 
-			float uw0 = qw0(d.x);
-			float uw1 = qw1(d.x);
-			float uw2 = qw2(d.x);
+			float uw0 = qw0(-d.x);
+			float uw1 = qw1(-d.x);
+			float uw2 = qw2(-d.x);
 
-			float vw0 = qw0(d.y);
-			float vw1 = qw1(d.y);
-			float vw2 = qw2(d.y);
+			float vw0 = qw0(-d.y);
+			float vw1 = qw1(-d.y);
+			float vw2 = qw2(-d.y);
 
 			vec2 v00 = uw0 * vw0 * shVRGrid[gridSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0)];
 			vec2 v10 = uw1 * vw0 * shVRGrid[gridSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 0)];
@@ -207,23 +207,23 @@ void main()
 			coords = ivec2(cellPosition - 0.5);
 			coordsInBlock = coords - gridBlockCellCoords;
 
-			d = cellPosition - coords;
+			d = coords - cellPosition;
 
-			dx0 = -d.x * dx;
-			dx1 = (1 - d.x) * dx;
-			dx2 = (2 - d.x) * dx;
+			dx0 = d.x * dx;
+			dx1 = (1 + d.x) * dx;
+			dx2 = (2 + d.x) * dx;
 
-			dy0 = -d.y * dx;
-			dy1 = (1 - d.y) * dx;
-			dy2 = (2 - d.y) * dx;
+			dy0 = d.y * dx;
+			dy1 = (1 + d.y) * dx;
+			dy2 = (2 + d.y) * dx;
 			
-			uw0 = qw0(d.x);
-			uw1 = qw1(d.x);
-			uw2 = qw2(d.x);
+			uw0 = qw0(-d.x);
+			uw1 = qw1(-d.x);
+			uw2 = qw2(-d.x);
 
-			vw0 = qw0(d.y);
-			vw1 = qw1(d.y);
-			vw2 = qw2(d.y);
+			vw0 = qw0(-d.y);
+			vw1 = qw1(-d.y);
+			vw2 = qw2(-d.y);
 
 			float w00 = uw0 * vw0;
 			float w10 = uw1 * vw0;

@@ -8,21 +8,9 @@ layout(set = 0, std430, binding = BIND_BO) buffer BlockBinOffsetsSSBOInOut
     uint blockBinOffsets[];
 };
 
-layout(set = 0, std430, binding = BIND_PO) buffer BlockParticleOffsetsSSBOInOut
-{
-    uint blockParticleOffsets[];
-};
-
-// Size to 256, max grid dimensions = 1024 = 256 * 4
 layout(set = 0, std430, binding = BIND_BS) writeonly buffer LocalBinSumSSBOOut
 {
 	uint localBinSum[];
-};
-
-// Size to 256, max grid dimensions = 1024 = 256 * 4
-layout(set = 0, std430, binding = BIND_PS) writeonly buffer LocalParticleSumSSBOOut
-{
-	uint localParticleSum[];
 };
 
 #define W (128)
@@ -32,7 +20,6 @@ layout(set = 0, std430, binding = BIND_PS) writeonly buffer LocalParticleSumSSBO
 layout(local_size_x = W, local_size_y = 1, local_size_z = 1) in;
 
 shared uint shBin[W2];
-shared uint shParticle[W2];
 
 void main()
 {
@@ -44,9 +31,6 @@ void main()
 	shBin[2 * localId] = blockBinOffsets[base + 2 * localId];
 	shBin[2 * localId + 1] = blockBinOffsets[base + 2 * localId + 1];
 
-	shParticle[2 * localId] = blockParticleOffsets[base + 2 * localId];
-	shParticle[2 * localId + 1] = blockParticleOffsets[base + 2 * localId + 1];
-
 	barrier();
 
 	// Upsweep
@@ -56,7 +40,6 @@ void main()
 		if (i < W2)
 		{
 			shBin[i] += shBin[i - offset];
-			shParticle[i] += shParticle[i - offset];
 		}
 		barrier();
 	}
@@ -66,9 +49,6 @@ void main()
 	{
 		localBinSum[block] = shBin[W2m1];
 		shBin[W2m1] = 0;
-
-		localParticleSum[block] = shParticle[W2m1];
-		shParticle[W2m1] = 0;
 	}
 
 	barrier();
@@ -82,17 +62,10 @@ void main()
 			uint tBin = shBin[i - offset];
 			shBin[i - offset] = shBin[i];
 			shBin[i] += tBin;
-
-			uint tParticle = shParticle[i - offset];
-			shParticle[i - offset] = shParticle[i];
-			shParticle[i] += tParticle;
 		}
 		barrier();
 	}
 
 	blockBinOffsets[base + 2 * localId] = shBin[2 * localId];
 	blockBinOffsets[base + 2 * localId + 1] = shBin[2 * localId + 1];
-
-	blockParticleOffsets[base + 2 * localId] = shParticle[2 * localId];
-	blockParticleOffsets[base + 2 * localId + 1] = shParticle[2 * localId + 1];
 }

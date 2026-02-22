@@ -4,13 +4,11 @@
 #define BIND_H (3)
 #define BIND_BC (4)
 #define BIND_BO (5)
-#define BIND_PO (6)
-#define BIND_BS (7)
-#define BIND_PS (8)
-#define BIND_BR (9)
-#define BIND_BW (10)
-#define BIND_SIDR (11)
-#define BIND_SIDW (12)
+#define BIND_BS (6)
+#define BIND_BR (7)
+#define BIND_BW (8)
+#define BIND_SIDR (9)
+#define BIND_SIDW (10)
 
 #define BIND_UBO (0)
 #define BIND_G (1)
@@ -26,6 +24,7 @@ struct Bin
 	vec2[BIN_SIZE] position;
 	float[BIN_SIZE] mass;
 	uint[BIN_SIZE] blockParticleIndex;
+	uint[BIN_SIZE] particleId;
 	uint particleCount;
 };
 
@@ -37,6 +36,7 @@ struct Particle
 
 layout(set = 1, binding = BIND_UBO) uniform ParameterUBO
 {
+	vec2 speed;
 	float k;
 	float mu;
 	float rho;

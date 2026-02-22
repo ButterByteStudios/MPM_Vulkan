@@ -2,6 +2,7 @@
 
 layout(binding = 0) uniform ParameterUBO
 {
+	vec2 speed;
 	float k;
 	float mu;
 	float rho;
@@ -31,7 +32,8 @@ void main()
 	
 	// Map the position from 0 - dimensions to 0 - (dimensions - 2);
 	vec2 pos = (inPosition * ubo.invDx - 1) / (ubo.dimensions - 2) * 2.0 - 1.0;
-	vec2 offset = pos - cam.pos;
+	vec2 camPos = vec2(cam.pos.x, -cam.pos.y);
+	vec2 offset = pos - camPos;
 	vec2 scaled = offset * cam.zoom;
 	gl_Position = vec4(scaled.x * cam.invAspectRatio, -scaled.y, 0.0, 1.0);
 	fragColor = inColor.rgb;

@@ -20,11 +20,6 @@ layout(set = 0, std430, binding = BIND_BO) writeonly buffer BlockBinOffsetsSSBOO
     uint blockBinOffsets[];
 };
 
-layout(set = 0, std430, binding = BIND_PO) writeonly buffer BlockParticleCountSSBOOut
-{
-    uint blockParticleOffsets[];
-};
-
 // This is for blocks, so maybe reduce thread size
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
@@ -44,5 +39,4 @@ void main()
     uint binCount = (particleCount + BIN_SIZE - 1) / BIN_SIZE;
     blockBinCount[block] = binCount;
 	blockBinOffsets[block] = binCount;
-	blockParticleOffsets[block] = particleCount;
 }

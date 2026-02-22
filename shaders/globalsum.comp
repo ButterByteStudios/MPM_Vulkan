@@ -8,25 +8,14 @@ layout(set = 0, std430, binding = BIND_BO) writeonly buffer BlockBinOffsetsSSBOO
     uint blockBinOffsets[];
 };
 
-layout(set = 0, std430, binding = BIND_PO) writeonly buffer BlockParticleOffsetsSSBOOut
-{
-    uint blockParticleOffsets[];
-};
-
 layout(set = 0, std430, binding = BIND_BS) readonly buffer LocalBinSumOffsetsSSBOIn
 {
 	uint localBinSumOffsets[];
 };
 
-layout(set = 0, std430, binding = BIND_PS) readonly buffer LocalParticleSumOffsetsSSBOIn
-{
-	uint localParticleSumOffsets[];
-};
-
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 shared uint binSum;
-shared uint particleSum;
 
 void main()
 {
@@ -39,10 +28,8 @@ void main()
 	if (localId == 0)
 	{
 		binSum = localBinSumOffsets[block];
-		particleSum = localParticleSumOffsets[block];
 	}
 	barrier();
 
 	blockBinOffsets[base + localId] += binSum;
-	blockParticleOffsets[base + localId] += particleSum;
 }

@@ -3,16 +3,6 @@
 #extension GL_ARB_shading_language_include: enable
 #include "global.glsl"
 
-layout(set = 0, std430, binding = BIND_BO) readonly buffer BlockBinOffsetsSSBOIn
-{
-    uint binOffsets[];
-};
-
-layout(set = 0, std430, binding = BIND_PO) readonly buffer BlockParticleOffsetsSSBOIn
-{
-    uint particleOffsets[];
-};
-
 layout(set = 0, std430, binding = BIND_BR) readonly buffer BinSSBOIn
 {
 	Bin binsIn[];
@@ -38,14 +28,7 @@ void main()
 	}
 
 	vec2 pPos = binsIn[bIndex].position[currentPIndex];
-	uint blockParticleIndex = binsIn[bIndex].blockParticleIndex[currentPIndex];
+	uint pId = binsIn[bIndex].particleId[currentPIndex];
 
-	// Find block index from pos = (floor(cellpos + 0.5) - 2) / 4
-	ivec2 cellCoords = ivec2(pPos * invDx - 1.5); // Use integer round to floor
-	ivec2 blockCoords = cellCoords >> 2; // Divide by 4
-	uint block = blockIndex(blockCoords.x, blockCoords.y);
-
-	// Split graphics scatter into seperate kernel
-	uint graphicsPIndex = particleOffsets[block] + blockParticleIndex;
-	particlesOut[graphicsPIndex].position = pPos;
+	particlesOut[pId].position = pPos;
 }

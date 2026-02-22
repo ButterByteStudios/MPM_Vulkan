@@ -35,20 +35,34 @@ void main()
 	vClearGrid[i] = vec2(0);
 
 	// 3 outer node halos are boundaries so particles stay in particle block territory
-	bool left = x <= 3;
-	bool right = x >= ubo.dimensions - 3;
-	bool down = y <= 3;
-	bool up = y >= ubo.dimensions - 3;
+	bool left = x <= 4;
+	bool right = x >= ubo.dimensions - 4;
+	bool down = y <= 4;
+	bool up = y >= ubo.dimensions - 4;
 
-	if (m == 0 || left || right || down || up)
+	vec2 acceleration = vec2(0, -9.81 * ubo.dt) + ubo.speed * ubo.dt;
+
+	if (m == 0)
 	{
 		vGrid[i] = vec2(0);
 		return;
 	}
-	
+
+	if (right || left)
+	{
+		v.x = 0;
+		acceleration.x = 0;
+	}
+
+	if (up || down)
+	{
+		v.y = 0;
+		acceleration.y = 0;
+	}
+
 	// Put in pushconstants maybe
 	float cflSpeed = ubo.dx * ubo.invDt;
 
 	// Convert momentum to velocity
-	vGrid[i] = clamp((v / m) + vec2(0, -9.81 * ubo.dt), -cflSpeed, cflSpeed);
+	vGrid[i] = clamp((v / m) + acceleration, -cflSpeed, cflSpeed);
 }

@@ -4,11 +4,13 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/integer.hpp>
 #include <vulkan/vulkan.h>
+#include <vulkan/vk_enum_string_helper.h>
 
-#include <descriptorAllocator.h>
-#include <descriptorLayoutBuilder.h>
-#include <deviceBuilder.h>
-#include <keyInput.h>
+#include <dsl/descriptorAllocator.h>
+#include <dsl/descriptorLayoutBuilder.h>
+#include <ldl/deviceBuilder.h>
+#include <iml/keyInput.h>
+#include <iml/mouseInput.h>
 
 #include <filesystem>
 #include <iostream>
@@ -28,7 +30,7 @@
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 800;
 const uint32_t MAX_FRAMES_IN_FLIGHT = 2;
-const uint32_t PARTICLE_COUNT = 1 << 16;
+const uint32_t PARTICLE_COUNT = 1 << 15;
 const uint32_t BIN_KERNEL_SIZE = 1;
 const uint32_t GRID_KERNEL_SIZE = 32;
 const uint32_t BLOCK_KERNEL_SIZE = 16;
@@ -63,8 +65,9 @@ const bool enableValidationLayers = false;
 const bool enableValidationLayers = true;
 #endif
 
-struct alignas(4) ParameterUBO
+struct alignas(8) ParameterUBO
 {
+	glm::vec2 speed;
 	float k;
 	float mu;
 	float rho;
@@ -109,6 +112,7 @@ struct alignas(8) Bin
 	glm::vec2 position[BIN_SIZE]; // 8 * 32 = 256
 	float mass[BIN_SIZE]; // 4 * 32 = 128
 	uint32_t blockParticleIndex[BIN_SIZE]; // 4 * 32 = 128
+	uint32_t particleId[BIN_SIZE];
 	uint32_t particleCount; // 4
 	// Max alignment = 8, so pad till nearest multiple of 8
 	// Total size = 512 + 256 + 128 + 128 + 4 + 4(pad) = 1032 = 8 * 129
@@ -193,13 +197,25 @@ private:
 		GLFW_KEY_D
 	};
 
+	std::vector<int> buttons{
+		GLFW_MOUSE_BUTTON_1,
+		GLFW_MOUSE_BUTTON_2,
+		GLFW_MOUSE_BUTTON_3,
+		GLFW_MOUSE_BUTTON_4,
+		GLFW_MOUSE_BUTTON_5,
+		GLFW_MOUSE_BUTTON_6,
+		GLFW_MOUSE_BUTTON_7,
+		GLFW_MOUSE_BUTTON_8
+	};
+
 	GLFWwindow* window;
 	VkInstance instance;
 	VkDebugUtilsMessengerEXT debugMessenger;
 	VkPhysicalDevice physicalDevice;
 	VkDevice device;
 
-	KeyInput input{ keys };
+	iml::KeyInput keyInput{ keys };
+	iml::MouseInput mouseInput{ buttons };
 
 	VkQueue computeQueue;
 	uint32_t computeFamilyIndex;
@@ -291,14 +307,8 @@ private:
 	VkBuffer binOffsetsBuffer;
 	VkDeviceMemory binOffsetsBufferMemory;
 
-	VkBuffer particleOffsetsBuffer;
-	VkDeviceMemory particleOffsetsBufferMemory;
-
 	VkBuffer binSumBuffer;
 	VkDeviceMemory binSumBufferMemory;
-
-	VkBuffer particleSumBuffer;
-	VkDeviceMemory particleSumBufferMemory;
 
 	std::vector<VkBuffer> scatterIndirectDispatchBuffers;
 	std::vector<VkDeviceMemory> scatterIndirectDispatchBuffersMemory;
@@ -321,21 +331,26 @@ private:
 	double lastTime = 0;
 	double lastFrameTime = 0;
 
-	float E = 1000000;
-	float v = 0.40;
-	float rho = 100;
-	float dx = 1.0f;
-	float dt = 0.003f;
-	float size = 0.5f;
-	float speed = 0.1f;
+	glm::vec2 lastMousePos = glm::vec2(0);
+	float sensitivity = 0.002f;
+	float scrollSensitivity = 0.05f;
+
+	float E = 100000;
+	float v = 0.4;
+	float rho = 2000;
+	float dx = 1.0f / dimensions;
+	float dt = 0.0002f;
+	float size = 0.2f;
 	uint32_t substeps = 15;
 	glm::vec2 cameraPos = glm::vec2(0);
 	float zoom = 1;
+	glm::vec2 accel = glm::vec2(0);
 
 	void mainLoop()
 	{
 		while (!glfwWindowShouldClose(window))
 		{
+			iml::MouseInput::clearFrameValues();
 			glfwPollEvents();
 			getInput();
 			drawFrame();
@@ -355,11 +370,17 @@ private:
 		glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
 		window = glfwCreateWindow(WIDTH, HEIGHT, "MpmVulkan", nullptr, nullptr);
-		KeyInput::setupKeyInputs(window);
+		iml::KeyInput::setupKeyInputs(window);
+		iml::MouseInput::setupMouseInputs(window);
 
 		glfwSetWindowUserPointer(window, this);
 		glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
 		lastTime = glfwGetTime();
+
+		double posX;
+		double posY;
+		glfwGetCursorPos(window, &posX, &posY);
+		lastMousePos = glm::vec2(posX, posY);
 	}
 
 	void initVulkan()
@@ -469,10 +490,15 @@ private:
 
 	void getInput()
 	{
-		int y = input.getIsKeyDown(GLFW_KEY_W) - input.getIsKeyDown(GLFW_KEY_S);
-		int x = input.getIsKeyDown(GLFW_KEY_D) - input.getIsKeyDown(GLFW_KEY_A);
+		int y = keyInput.getIsKeyDown(GLFW_KEY_W) - keyInput.getIsKeyDown(GLFW_KEY_S);
+		int x = keyInput.getIsKeyDown(GLFW_KEY_D) - keyInput.getIsKeyDown(GLFW_KEY_A);
 		
-		cameraPos += glm::vec2(x, y) * speed;
+		glm::vec2 mousePos = glm::vec2((float)mouseInput.posX, (float)mouseInput.posY);
+		glm::vec2 deltaMouse = mouseInput.getIsButtonDown(GLFW_MOUSE_BUTTON_LEFT) ? lastMousePos - mousePos : glm::vec2(0);
+		lastMousePos = mousePos;
+		zoom += (mouseInput.scrollDY * scrollSensitivity) * zoom;
+		cameraPos += deltaMouse * sensitivity / zoom;
+		accel = glm::vec2(x, y) * 20.0f;
 	}
 
 	void drawFrame()
@@ -561,39 +587,6 @@ private:
 		currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 	}
 
-	const char* VkResultToString(VkResult result) {
-		switch (result) {
-		case VK_SUCCESS: return "VK_SUCCESS";
-		case VK_NOT_READY: return "VK_NOT_READY";
-		case VK_TIMEOUT: return "VK_TIMEOUT";
-		case VK_EVENT_SET: return "VK_EVENT_SET";
-		case VK_EVENT_RESET: return "VK_EVENT_RESET";
-		case VK_INCOMPLETE: return "VK_INCOMPLETE";
-		case VK_ERROR_OUT_OF_HOST_MEMORY: return "VK_ERROR_OUT_OF_HOST_MEMORY";
-		case VK_ERROR_OUT_OF_DEVICE_MEMORY: return "VK_ERROR_OUT_OF_DEVICE_MEMORY";
-		case VK_ERROR_INITIALIZATION_FAILED: return "VK_ERROR_INITIALIZATION_FAILED";
-		case VK_ERROR_DEVICE_LOST: return "VK_ERROR_DEVICE_LOST";
-		case VK_ERROR_MEMORY_MAP_FAILED: return "VK_ERROR_MEMORY_MAP_FAILED";
-		case VK_ERROR_LAYER_NOT_PRESENT: return "VK_ERROR_LAYER_NOT_PRESENT";
-		case VK_ERROR_EXTENSION_NOT_PRESENT: return "VK_ERROR_EXTENSION_NOT_PRESENT";
-		case VK_ERROR_FEATURE_NOT_PRESENT: return "VK_ERROR_FEATURE_NOT_PRESENT";
-		case VK_ERROR_INCOMPATIBLE_DRIVER: return "VK_ERROR_INCOMPATIBLE_DRIVER";
-		case VK_ERROR_TOO_MANY_OBJECTS: return "VK_ERROR_TOO_MANY_OBJECTS";
-		case VK_ERROR_FORMAT_NOT_SUPPORTED: return "VK_ERROR_FORMAT_NOT_SUPPORTED";
-		case VK_ERROR_FRAGMENTED_POOL: return "VK_ERROR_FRAGMENTED_POOL";
-		case VK_ERROR_OUT_OF_POOL_MEMORY: return "VK_ERROR_OUT_OF_POOL_MEMORY";
-		case VK_ERROR_INVALID_EXTERNAL_HANDLE: return "VK_ERROR_INVALID_EXTERNAL_HANDLE";
-		case VK_ERROR_SURFACE_LOST_KHR: return "VK_ERROR_SURFACE_LOST_KHR";
-		case VK_ERROR_NATIVE_WINDOW_IN_USE_KHR: return "VK_ERROR_NATIVE_WINDOW_IN_USE_KHR";
-		case VK_SUBOPTIMAL_KHR: return "VK_SUBOPTIMAL_KHR";
-		case VK_ERROR_OUT_OF_DATE_KHR: return "VK_ERROR_OUT_OF_DATE_KHR";
-		case VK_ERROR_INCOMPATIBLE_DISPLAY_KHR: return "VK_ERROR_INCOMPATIBLE_DISPLAY_KHR";
-		case VK_ERROR_VALIDATION_FAILED_EXT: return "VK_ERROR_VALIDATION_FAILED_EXT";
-		case VK_ERROR_INVALID_SHADER_NV: return "VK_ERROR_INVALID_SHADER_NV";
-		default: return "Unknown VkResult";
-		}
-	}
-
 	void updateUniformBuffer(uint32_t currentImage)
 	{
 		ParameterUBO pUBO{};
@@ -606,6 +599,7 @@ private:
 		pUBO.blockDimensions = particleBlockDimensions;
 		pUBO.dt = dt;
 		pUBO.invDt = 1.0f / pUBO.dt;
+		pUBO.speed = accel;
 
 		memcpy(parameterBuffersMapped[currentImage], &pUBO, sizeof(pUBO));
 
@@ -1115,10 +1109,10 @@ private:
 	{
 		std::vector<dsl::DescriptorAllocator::PoolSizeRatio> substepSizes =
 		{
-			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 13.0f / 13.0f }
+			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 11.0f / 11.0f }
 		};
 
-		substepComputeDescriptorAllocator.initPool(device, 2 * 13, substepSizes);
+		substepComputeDescriptorAllocator.initPool(device, 2 * 11, substepSizes);
 
 		dsl::DescriptorLayoutBuilder substepBuilder{};
 		substepBuilder.addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // VR
@@ -1127,13 +1121,11 @@ private:
 		substepBuilder.addBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // H
 		substepBuilder.addBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // BC
 		substepBuilder.addBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // BO
-		substepBuilder.addBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // PO
-		substepBuilder.addBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // BS
-		substepBuilder.addBinding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // PS
-		substepBuilder.addBinding(9, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // BR
-		substepBuilder.addBinding(10, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // BW
-		substepBuilder.addBinding(11, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // SIDR
-		substepBuilder.addBinding(12, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // SIDW
+		substepBuilder.addBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // BS
+		substepBuilder.addBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // BR
+		substepBuilder.addBinding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // BW
+		substepBuilder.addBinding(9, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // SIDR
+		substepBuilder.addBinding(10, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // SIDW
 
 		substepBuilder.build(device, VK_SHADER_STAGE_COMPUTE_BIT, substepComputeDescriptorSetLayout);
 
@@ -1145,7 +1137,7 @@ private:
 		for (size_t i = 0; i < 2; i++)
 		{
 			uint32_t binding = 0;
-			std::array<VkWriteDescriptorSet, 13> descriptorWrites{};
+			std::array<VkWriteDescriptorSet, 11> descriptorWrites{};
 
 			VkDescriptorBufferInfo vBufferReadInfo{};
 			vBufferReadInfo.buffer = vBuffers[(i + 2 - 1) % 2];
@@ -1231,10 +1223,10 @@ private:
 			descriptorWrites[binding].descriptorCount = 1;
 			descriptorWrites[binding].pBufferInfo = &binOffsetsBufferInfo;
 
-			VkDescriptorBufferInfo particleOffsetsBufferInfo{};
-			particleOffsetsBufferInfo.buffer = particleOffsetsBuffer;
-			particleOffsetsBufferInfo.offset = 0;
-			particleOffsetsBufferInfo.range = sizeof(uint32_t) * paddedParticleBlockCount;
+			VkDescriptorBufferInfo binSumBufferInfo{};
+			binSumBufferInfo.buffer = binSumBuffer;
+			binSumBufferInfo.offset = 0;
+			binSumBufferInfo.range = sizeof(uint32_t) * BLOCK_KERNEL_SIZE * BLOCK_KERNEL_SIZE;
 
 			binding = 6;
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1243,42 +1235,14 @@ private:
 			descriptorWrites[binding].dstArrayElement = 0;
 			descriptorWrites[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 			descriptorWrites[binding].descriptorCount = 1;
-			descriptorWrites[binding].pBufferInfo = &particleOffsetsBufferInfo;
-
-			VkDescriptorBufferInfo binSumBufferInfo{};
-			binSumBufferInfo.buffer = binSumBuffer;
-			binSumBufferInfo.offset = 0;
-			binSumBufferInfo.range = sizeof(uint32_t) * BLOCK_KERNEL_SIZE * BLOCK_KERNEL_SIZE;
-
-			binding = 7;
-			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			descriptorWrites[binding].dstSet = substepDescriptorSets[i];
-			descriptorWrites[binding].dstBinding = binding;
-			descriptorWrites[binding].dstArrayElement = 0;
-			descriptorWrites[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-			descriptorWrites[binding].descriptorCount = 1;
 			descriptorWrites[binding].pBufferInfo = &binSumBufferInfo;
-
-			VkDescriptorBufferInfo particleSumBufferInfo{};
-			particleSumBufferInfo.buffer = particleSumBuffer;
-			particleSumBufferInfo.offset = 0;
-			particleSumBufferInfo.range = sizeof(uint32_t) * BLOCK_KERNEL_SIZE * BLOCK_KERNEL_SIZE;
-
-			binding = 8;
-			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			descriptorWrites[binding].dstSet = substepDescriptorSets[i];
-			descriptorWrites[binding].dstBinding = binding;
-			descriptorWrites[binding].dstArrayElement = 0;
-			descriptorWrites[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-			descriptorWrites[binding].descriptorCount = 1;
-			descriptorWrites[binding].pBufferInfo = &particleSumBufferInfo;
 
 			VkDescriptorBufferInfo binBufferReadInfo{};
 			binBufferReadInfo.buffer = binBuffers[(i + 2 - 1) % 2];
 			binBufferReadInfo.offset = 0;
 			binBufferReadInfo.range = sizeof(Bin) * binCount;
 
-			binding = 9;
+			binding = 7;
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			descriptorWrites[binding].dstSet = substepDescriptorSets[i];
 			descriptorWrites[binding].dstBinding = binding;
@@ -1292,7 +1256,7 @@ private:
 			BinBufferWriteInfo.offset = 0;
 			BinBufferWriteInfo.range = sizeof(Bin) * binCount;
 
-			binding = 10;
+			binding = 8;
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			descriptorWrites[binding].dstSet = substepDescriptorSets[i];
 			descriptorWrites[binding].dstBinding = binding;
@@ -1306,7 +1270,7 @@ private:
 			scatterIndirectDispatchBufferReadInfo.offset = 0;
 			scatterIndirectDispatchBufferReadInfo.range = sizeof(ScatterDispatchData);
 
-			binding = 11;
+			binding = 9;
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			descriptorWrites[binding].dstSet = substepDescriptorSets[i];
 			descriptorWrites[binding].dstBinding = binding;
@@ -1320,7 +1284,7 @@ private:
 			scatterIndirectDispatchBufferWriteInfo.offset = 0;
 			scatterIndirectDispatchBufferWriteInfo.range = sizeof(ScatterDispatchData);
 
-			binding = 12;
+			binding = 10;
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			descriptorWrites[binding].dstSet = substepDescriptorSets[i];
 			descriptorWrites[binding].dstBinding = binding;
@@ -1904,7 +1868,7 @@ private:
 			blockIndices[i] = blockIndex;
 			blockPIndex[i] = histogram[blockIndex]++;
 			particles[i].position = pos;
-			particles[i].color = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+			particles[i].color = glm::vec4(rndDist(rndEngine), rndDist(rndEngine), rndDist(rndEngine), 1.0f);
 		}
 
 		std::vector<uint32_t> binCounts(paddedParticleBlockCount);
@@ -1933,6 +1897,7 @@ private:
 			bins[binIndex].position[pIndex] = pos;
 			bins[binIndex].mass[pIndex] = mass;
 			bins[binIndex].blockParticleIndex[pIndex] = blockPIndex[i];
+			bins[binIndex].particleId[pIndex] = i;
 			bins[binIndex].particleCount++;
 		}
 
@@ -2040,11 +2005,7 @@ private:
 		vkDestroyBuffer(device, stagingBuffer, nullptr);
 		vkFreeMemory(device, stagingBufferMemory, nullptr);
 		//
-		
-		// Counters
-		createBuffer(bufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, particleOffsetsBuffer, particleOffsetsBufferMemory);
-		//
-		
+
 		// local sums
 		std::vector<uint32_t> emptySums(BLOCK_KERNEL_SIZE * BLOCK_KERNEL_SIZE);
 		bufferSize = sizeof(uint32_t) * BLOCK_KERNEL_SIZE * BLOCK_KERNEL_SIZE;
@@ -2056,8 +2017,6 @@ private:
 
 		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, binSumBuffer, binSumBufferMemory);
 		copyBuffer(stagingBuffer, binSumBuffer, bufferSize);
-		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, particleSumBuffer, particleSumBufferMemory);
-		copyBuffer(stagingBuffer, particleSumBuffer, bufferSize);
 
 		vkDestroyBuffer(device, stagingBuffer, nullptr);
 		vkFreeMemory(device, stagingBufferMemory, nullptr);
@@ -2538,14 +2497,8 @@ private:
 		vkDestroyBuffer(device, binOffsetsBuffer, nullptr);
 		vkFreeMemory(device, binOffsetsBufferMemory, nullptr);
 
-		vkDestroyBuffer(device, particleOffsetsBuffer, nullptr);
-		vkFreeMemory(device, particleOffsetsBufferMemory, nullptr);
-
 		vkDestroyBuffer(device, binSumBuffer, nullptr);
 		vkFreeMemory(device, binSumBufferMemory, nullptr);
-
-		vkDestroyBuffer(device, particleSumBuffer, nullptr);
-		vkFreeMemory(device, particleSumBufferMemory, nullptr);
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{

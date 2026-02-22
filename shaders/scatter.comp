@@ -13,11 +13,6 @@ layout(set = 0, std430, binding = BIND_BO) readonly buffer BlockBinOffsetsSSBOIn
     uint binOffsets[];
 };
 
-layout(set = 0, std430, binding = BIND_PO) readonly buffer BlockParticleOffsetsSSBOIn
-{
-    uint particleOffsets[];
-};
-
 layout(set = 0, std430, binding = BIND_BR) readonly buffer BinSSBOIn
 {
 	Bin binsIn[];
@@ -45,6 +40,7 @@ void main()
 	mat2 F = binsIn[bIndex].F[currentPIndex];
 	vec2 pPos = binsIn[bIndex].position[currentPIndex];
 	float m = binsIn[bIndex].mass[currentPIndex];
+	uint pId = binsIn[bIndex].particleId[currentPIndex];
 	uint blockParticleIndex = binsIn[bIndex].blockParticleIndex[currentPIndex];
 
 	// Find block index from pos = (floor(cellpos + 0.5) - 2) / 4
@@ -61,6 +57,7 @@ void main()
 	binsOut[nextBIndex].F[nextPIndex] = F;
 	binsOut[nextBIndex].position[nextPIndex] = pPos;
 	binsOut[nextBIndex].mass[nextPIndex] = m;
+	binsOut[nextBIndex].particleId[nextPIndex] = pId;
 
 	if (nextPIndex == 0)
 	{
