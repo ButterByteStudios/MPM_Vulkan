@@ -13,7 +13,7 @@ layout(set = 0, std430, binding = BIND_BO) readonly buffer BlockBinOffsetsSSBOOu
     uint blockBinOffsets[];
 };
 
-layout(set = 0, std430, binding = BIND_SIDW) writeonly buffer ScatterIndirectOut
+layout(set = 0, std430, binding = BIND_SID) writeonly buffer ScatterIndirectOut
 {
 	uint scatterX;
 	uint scatterY;

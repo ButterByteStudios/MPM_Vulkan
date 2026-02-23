@@ -7,8 +7,7 @@
 #define BIND_BS (6)
 #define BIND_BR (7)
 #define BIND_BW (8)
-#define BIND_SIDR (9)
-#define BIND_SIDW (10)
+#define BIND_SID (9)
 
 #define BIND_UBO (0)
 #define BIND_G (1)

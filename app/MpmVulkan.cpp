@@ -253,8 +253,8 @@ private:
 	VkPipeline localsumComputePipeline;
 	VkPipeline partialglobalsumComputePipeline;
 	VkPipeline globalsumComputePipeline;
-	VkPipeline totalextractionComputePipeline;
 	VkPipeline scatterComputePipeline;
+	VkPipeline totalextractionComputePipeline;
 	VkPipeline clearhistogramComputePipeline;
 	VkPipeline graphicsscatterComputePipeline;
 	VkPipeline gridComputePipeline;
@@ -298,7 +298,7 @@ private:
 	val::AllocatedBuffer binOffsetsBuffer;
 	val::AllocatedBuffer binSumBuffer;
 
-	std::vector<val::AllocatedBuffer> scatterIndirectDispatchBuffers;
+	val::AllocatedBuffer scatterIndirectDispatchBuffer;
 
 	std::vector<val::AllocatedBuffer> parameterBuffers;
 	std::vector<val::AllocatedBuffer> cameraBuffers;
@@ -1094,10 +1094,10 @@ private:
 	{
 		std::vector<dsl::DescriptorAllocator::PoolSizeRatio> substepSizes =
 		{
-			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 11.0f / 11.0f }
+			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 10.0f / 10.0f }
 		};
 
-		substepComputeDescriptorAllocator.initPool(device, 2 * 11, substepSizes);
+		substepComputeDescriptorAllocator.initPool(device, 2 * 10, substepSizes);
 
 		dsl::DescriptorLayoutBuilder substepBuilder{};
 		substepBuilder.addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // VR
@@ -1109,8 +1109,7 @@ private:
 		substepBuilder.addBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // BS
 		substepBuilder.addBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // BR
 		substepBuilder.addBinding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // BW
-		substepBuilder.addBinding(9, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // SIDR
-		substepBuilder.addBinding(10, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // SIDW
+		substepBuilder.addBinding(9, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // SID
 
 		substepBuilder.build(device, VK_SHADER_STAGE_COMPUTE_BIT, substepComputeDescriptorSetLayout);
 
@@ -1122,7 +1121,7 @@ private:
 		for (size_t i = 0; i < 2; i++)
 		{
 			uint32_t binding = 0;
-			std::array<VkWriteDescriptorSet, 11> descriptorWrites{};
+			std::array<VkWriteDescriptorSet, 10> descriptorWrites{};
 
 			VkDescriptorBufferInfo vBufferReadInfo{};
 			vBufferReadInfo.buffer = vBuffers[(i + 2 - 1) % 2].buffer;
@@ -1250,10 +1249,10 @@ private:
 			descriptorWrites[binding].descriptorCount = 1;
 			descriptorWrites[binding].pBufferInfo = &BinBufferWriteInfo;
 
-			VkDescriptorBufferInfo scatterIndirectDispatchBufferReadInfo{};
-			scatterIndirectDispatchBufferReadInfo.buffer = scatterIndirectDispatchBuffers[(i + 2 - 1) % 2].buffer;
-			scatterIndirectDispatchBufferReadInfo.offset = 0;
-			scatterIndirectDispatchBufferReadInfo.range = sizeof(ScatterDispatchData);
+			VkDescriptorBufferInfo scatterIndirectDispatchBufferInfo{};
+			scatterIndirectDispatchBufferInfo.buffer = scatterIndirectDispatchBuffer.buffer;
+			scatterIndirectDispatchBufferInfo.offset = 0;
+			scatterIndirectDispatchBufferInfo.range = sizeof(ScatterDispatchData);
 
 			binding = 9;
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1262,21 +1261,7 @@ private:
 			descriptorWrites[binding].dstArrayElement = 0;
 			descriptorWrites[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 			descriptorWrites[binding].descriptorCount = 1;
-			descriptorWrites[binding].pBufferInfo = &scatterIndirectDispatchBufferReadInfo;
-
-			VkDescriptorBufferInfo scatterIndirectDispatchBufferWriteInfo{};
-			scatterIndirectDispatchBufferWriteInfo.buffer = scatterIndirectDispatchBuffers[i].buffer;
-			scatterIndirectDispatchBufferWriteInfo.offset = 0;
-			scatterIndirectDispatchBufferWriteInfo.range = sizeof(ScatterDispatchData);
-
-			binding = 10;
-			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			descriptorWrites[binding].dstSet = substepDescriptorSets[i];
-			descriptorWrites[binding].dstBinding = binding;
-			descriptorWrites[binding].dstArrayElement = 0;
-			descriptorWrites[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-			descriptorWrites[binding].descriptorCount = 1;
-			descriptorWrites[binding].pBufferInfo = &scatterIndirectDispatchBufferWriteInfo;
+			descriptorWrites[binding].pBufferInfo = &scatterIndirectDispatchBufferInfo;
 
 			vkUpdateDescriptorSets(device, descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
 		}
@@ -1344,8 +1329,8 @@ private:
 		auto localsumCode = readFile("../shaders/localsum.comp.spv");
 		auto partialglobalsumCode = readFile("../shaders/partialglobalsum.comp.spv");
 		auto globalsumCode = readFile("../shaders/globalsum.comp.spv");
-		auto totalextractionCode = readFile("../shaders/totalextraction.comp.spv");
 		auto scatterCode = readFile("../shaders/scatter.comp.spv");
+		auto totalextractionCode = readFile("../shaders/totalextraction.comp.spv");
 		auto clearhistogramCode = readFile("../shaders/clearhistogram.comp.spv");
 		auto graphicsscatterCode = readFile("../shaders/graphicsscatter.comp.spv");
 		auto gridCode = readFile("../shaders/grid.comp.spv");
@@ -1357,8 +1342,8 @@ private:
 			createShaderModule(localsumCode),
 			createShaderModule(partialglobalsumCode),
 			createShaderModule(globalsumCode),
-			createShaderModule(totalextractionCode),
 			createShaderModule(scatterCode),
+			createShaderModule(totalextractionCode),
 			createShaderModule(clearhistogramCode),
 			createShaderModule(graphicsscatterCode),
 			createShaderModule(gridCode)
@@ -1416,8 +1401,8 @@ private:
 		localsumComputePipeline = pipelines[2];
 		partialglobalsumComputePipeline = pipelines[3];
 		globalsumComputePipeline = pipelines[4];
-		totalextractionComputePipeline = pipelines[5];
-		scatterComputePipeline = pipelines[6];
+		scatterComputePipeline = pipelines[5];
+		totalextractionComputePipeline = pipelines[6];
 		clearhistogramComputePipeline = pipelines[7];
 		graphicsscatterComputePipeline = pipelines[8];
 		gridComputePipeline = pipelines[9];
@@ -1648,18 +1633,6 @@ private:
 
 			vkCmdPipelineBarrier(commandBuffer,
 				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-				0,
-				1, &computeToComputeBarrier,
-				0, nullptr,
-				0, nullptr
-			);
-
-			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, totalextractionComputePipeline);
-			vkCmdDispatch(commandBuffer, 1, 1, 1);
-
-			vkCmdPipelineBarrier(commandBuffer,
-				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
 				0,
 				1, &computeToIndirectBarrier,
@@ -1669,7 +1642,19 @@ private:
 			//
 
 			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, scatterComputePipeline);
-			vkCmdDispatchIndirect(commandBuffer, scatterIndirectDispatchBuffers[(currentCompute + 2 - 1) % 2].buffer, 0);
+			vkCmdDispatchIndirect(commandBuffer, scatterIndirectDispatchBuffer.buffer, 0);
+
+			vkCmdPipelineBarrier(commandBuffer,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				0,
+				1, &computeToComputeBarrier,
+				0, nullptr,
+				0, nullptr
+			);
+
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, totalextractionComputePipeline);
+			vkCmdDispatch(commandBuffer, 1, 1, 1);
 
 			vkCmdPipelineBarrier(commandBuffer,
 				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -1709,7 +1694,7 @@ private:
 		}
 
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, graphicsscatterComputePipeline);
-		vkCmdDispatchIndirect(commandBuffer, scatterIndirectDispatchBuffers[(currentCompute + 2 * 2 - 2) % 2].buffer, 0);
+		vkCmdDispatchIndirect(commandBuffer, scatterIndirectDispatchBuffer.buffer, 0);
 
 		if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS)
 		{
@@ -1807,7 +1792,6 @@ private:
 		binBuffers.resize(2);
 		graphicsBuffers.resize(2);
 		vBuffers.resize(2);
-		scatterIndirectDispatchBuffers.resize(2);
 
 		float pi = 3.14159265358979323846f;
 		float worldR = size * (dimensions / 2) * dx;
@@ -2038,16 +2022,13 @@ private:
 		stagingBuffer = createStagingBuffer(bufferSize);
 		memcpy(stagingBuffer.mapped, &scatterDispatchData, (size_t)bufferSize);
 
-		for (size_t i = 0; i < 2; i++)
-		{
-			scatterIndirectDispatchBuffers[i] = bufferAllocator.create({
-				bufferSize,
-				val::BufferUsage::Indirect,
-				val::BufferLifetime::Static
-				});
+		scatterIndirectDispatchBuffer = bufferAllocator.create({
+			bufferSize,
+			val::BufferUsage::Indirect,
+			val::BufferLifetime::Static
+			});
 
-			copyBuffer(stagingBuffer.buffer, scatterIndirectDispatchBuffers[i].buffer, bufferSize);
-		}
+		copyBuffer(stagingBuffer.buffer, scatterIndirectDispatchBuffer.buffer, bufferSize);
 
 		stagingBuffer.dispose();
 		//
@@ -2474,7 +2455,6 @@ private:
 		{
 			vBuffers[i].dispose();
 			binBuffers[i].dispose();
-			scatterIndirectDispatchBuffers[i].dispose();
 		}
 
 		mBuffer.dispose();
@@ -2482,6 +2462,7 @@ private:
 		binCountBuffer.dispose();
 		binOffsetsBuffer.dispose();
 		binSumBuffer.dispose();
+		scatterIndirectDispatchBuffer.dispose();
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
