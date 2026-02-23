@@ -1,5 +1,5 @@
 add_library(pbl STATIC
-	"barrierBuilder.cpp"
+	"src/barrierBuilder.cpp"
 )
 
 target_include_directories(pbl

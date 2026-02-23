@@ -11,6 +11,7 @@
 #include <ldl/deviceBuilder.h>
 #include <iml/keyInput.h>
 #include <iml/mouseInput.h>
+#include <val/vulkanAllocator.h>
 
 #include <filesystem>
 #include <iostream>
@@ -30,7 +31,7 @@
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 800;
 const uint32_t MAX_FRAMES_IN_FLIGHT = 2;
-const uint32_t PARTICLE_COUNT = 1 << 15;
+const uint32_t PARTICLE_COUNT = 1 << 17;
 const uint32_t BIN_KERNEL_SIZE = 1;
 const uint32_t GRID_KERNEL_SIZE = 32;
 const uint32_t BLOCK_KERNEL_SIZE = 16;
@@ -286,46 +287,28 @@ private:
 	uint32_t currentFrame = 0;
 	uint32_t currentCompute = 0;
 
-	std::vector<VkBuffer> binBuffers;
-	std::vector<VkDeviceMemory> binBuffersMemory;
+	val::VulkanAllocator bufferAllocator;
 
-	std::vector<VkBuffer> graphicsBuffers;
-	std::vector<VkDeviceMemory> graphicsBuffersMemory;
+	std::vector<val::AllocatedBuffer> binBuffers; // Scatter requires a seperate read and write buffer to prevent race conditions
+	std::vector<val::AllocatedBuffer> graphicsBuffers; // Requires stored states per in flight frame
+	std::vector<val::AllocatedBuffer> vBuffers; // G2p2g requires a reperate read and write buffer to prevent race conditions
+	val::AllocatedBuffer mBuffer;
+	val::AllocatedBuffer histogramBuffer;
+	val::AllocatedBuffer binCountBuffer;
+	val::AllocatedBuffer binOffsetsBuffer;
+	val::AllocatedBuffer binSumBuffer;
 
-	std::vector<VkBuffer> vBuffers;
-	std::vector<VkDeviceMemory> vBuffersMemory;
+	std::vector<val::AllocatedBuffer> scatterIndirectDispatchBuffers;
 
-	VkBuffer mBuffer;
-	VkDeviceMemory mBufferMemory;
+	std::vector<val::AllocatedBuffer> parameterBuffers;
+	std::vector<val::AllocatedBuffer> cameraBuffers;
 
-	VkBuffer histogramBuffer;
-	VkDeviceMemory histogramBufferMemory;
-
-	VkBuffer binCountBuffer;
-	VkDeviceMemory binCountBufferMemory;
-
-	VkBuffer binOffsetsBuffer;
-	VkDeviceMemory binOffsetsBufferMemory;
-
-	VkBuffer binSumBuffer;
-	VkDeviceMemory binSumBufferMemory;
-
-	std::vector<VkBuffer> scatterIndirectDispatchBuffers;
-	std::vector<VkDeviceMemory> scatterIndirectDispatchBuffersMemory;
-
-	std::vector<VkBuffer> parameterBuffers;
-	std::vector<VkDeviceMemory> parameterBuffersMemory;
-	std::vector<void*> parameterBuffersMapped;
-
-	std::vector<VkBuffer> cameraBuffers;
-	std::vector<VkDeviceMemory> cameraBuffersMemory;
-	std::vector<void*> cameraBuffersMapped;
-
-	uint32_t dimensions = 1 << 7; // Max: 32748. Min: 128. Determined by SUM_KERNEL_SIZE (the block kernels need to atleast have one filled workgroup and max 256 filled workgroups (determined by the localsum workgroupsize))
+	uint32_t dimensions = 1 << 7;
 	uint32_t gridBlockDimensions = dimensions >> 2;
 	uint32_t particleBlockDimensions = gridBlockDimensions - 1;
 	uint32_t paddedParticleBlockDimensions = gridBlockDimensions;
-	uint32_t paddedParticleBlockCount = paddedParticleBlockDimensions * paddedParticleBlockDimensions; // Padded to nearest power of two (gridblockdimensions * gridblockdimensions)
+	uint32_t paddedParticleBlockCount = gridBlockDimensions * gridBlockDimensions;
+
 	uint32_t binCount = particleBlockDimensions * particleBlockDimensions + ceilIntDivision(PARTICLE_COUNT, BIN_SIZE); // Impossibly worst case scenario. Every bin is full and all blocks have one non-full bin
 
 	double lastTime = 0;
@@ -336,7 +319,7 @@ private:
 	float scrollSensitivity = 0.05f;
 
 	float E = 100000;
-	float v = 0.4;
+	float v = 0.45f;
 	float rho = 2000;
 	float dx = 1.0f / dimensions;
 	float dt = 0.0002f;
@@ -590,7 +573,7 @@ private:
 	void updateUniformBuffer(uint32_t currentImage)
 	{
 		ParameterUBO pUBO{};
-		pUBO.k = E / (3.0f - 6.0f * v);
+		pUBO.k = E / (2.0f * (1.0f - v));
 		pUBO.mu = E / (2.0f * (1.0f + v));
 		pUBO.rho = rho;
 		pUBO.dx = dx;
@@ -601,7 +584,7 @@ private:
 		pUBO.invDt = 1.0f / pUBO.dt;
 		pUBO.speed = accel;
 
-		memcpy(parameterBuffersMapped[currentImage], &pUBO, sizeof(pUBO));
+		memcpy(parameterBuffers[currentImage].mapped, &pUBO, sizeof(pUBO));
 
 		int width;
 		int height;
@@ -612,7 +595,7 @@ private:
 		cUBO.pos = cameraPos;
 		cUBO.zoom = zoom;
 
-		memcpy(cameraBuffersMapped[currentImage], &cUBO, sizeof(cUBO));
+		memcpy(cameraBuffers[currentImage].mapped, &cUBO, sizeof(cUBO));
 	}
 
 	std::vector<const char*> getRequiredExtensions()
@@ -711,6 +694,8 @@ private:
 		deviceBuilder.pickPhysicalDevice(physicalDevice);
 
 		deviceBuilder.build(device, enableValidationLayers);
+
+		bufferAllocator = { device, physicalDevice };
 
 		deviceBuilder.getQueue(VK_QUEUE_GRAPHICS_BIT, 0, false, graphicsQueue);
 		graphicsFamilyIndex = deviceBuilder.getQueueFamily(VK_QUEUE_GRAPHICS_BIT, 0, false);
@@ -927,7 +912,7 @@ private:
 			std::vector<VkWriteDescriptorSet> descriptorWrites(2);
 
 			VkDescriptorBufferInfo parameterBufferInfo{};
-			parameterBufferInfo.buffer = parameterBuffers[i];
+			parameterBufferInfo.buffer = parameterBuffers[i].buffer;
 			parameterBufferInfo.offset = 0;
 			parameterBufferInfo.range = sizeof(ParameterUBO);
 
@@ -940,7 +925,7 @@ private:
 			descriptorWrites[0].pBufferInfo = &parameterBufferInfo;
 
 			VkDescriptorBufferInfo cameraBufferInfo{};
-			cameraBufferInfo.buffer = cameraBuffers[i];
+			cameraBufferInfo.buffer = cameraBuffers[i].buffer;
 			cameraBufferInfo.offset = 0;
 			cameraBufferInfo.range = sizeof(CameraUBO);
 
@@ -1140,7 +1125,7 @@ private:
 			std::array<VkWriteDescriptorSet, 11> descriptorWrites{};
 
 			VkDescriptorBufferInfo vBufferReadInfo{};
-			vBufferReadInfo.buffer = vBuffers[(i + 2 - 1) % 2];
+			vBufferReadInfo.buffer = vBuffers[(i + 2 - 1) % 2].buffer;
 			vBufferReadInfo.offset = 0;
 			vBufferReadInfo.range = sizeof(glm::vec2) * dimensions * dimensions;
 
@@ -1154,7 +1139,7 @@ private:
 			descriptorWrites[binding].pBufferInfo = &vBufferReadInfo;
 
 			VkDescriptorBufferInfo vBufferWriteInfo{};
-			vBufferWriteInfo.buffer = vBuffers[i];
+			vBufferWriteInfo.buffer = vBuffers[i].buffer;
 			vBufferWriteInfo.offset = 0;
 			vBufferWriteInfo.range = sizeof(glm::vec2) * dimensions * dimensions;
 
@@ -1168,7 +1153,7 @@ private:
 			descriptorWrites[binding].pBufferInfo = &vBufferWriteInfo;
 
 			VkDescriptorBufferInfo mBufferWriteInfo{};
-			mBufferWriteInfo.buffer = mBuffer;
+			mBufferWriteInfo.buffer = mBuffer.buffer;
 			mBufferWriteInfo.offset = 0;
 			mBufferWriteInfo.range = sizeof(float) * dimensions * dimensions;
 
@@ -1182,7 +1167,7 @@ private:
 			descriptorWrites[binding].pBufferInfo = &mBufferWriteInfo;
 
 			VkDescriptorBufferInfo histogramBufferInfo{};
-			histogramBufferInfo.buffer = histogramBuffer;
+			histogramBufferInfo.buffer = histogramBuffer.buffer;
 			histogramBufferInfo.offset = 0;
 			histogramBufferInfo.range = sizeof(uint32_t) * paddedParticleBlockCount;
 
@@ -1196,7 +1181,7 @@ private:
 			descriptorWrites[binding].pBufferInfo = &histogramBufferInfo;
 
 			VkDescriptorBufferInfo binCountBufferInfo{};
-			binCountBufferInfo.buffer = binCountBuffer;
+			binCountBufferInfo.buffer = binCountBuffer.buffer;
 			binCountBufferInfo.offset = 0;
 			binCountBufferInfo.range = sizeof(uint32_t) * paddedParticleBlockCount;
 
@@ -1210,7 +1195,7 @@ private:
 			descriptorWrites[binding].pBufferInfo = &binCountBufferInfo;
 
 			VkDescriptorBufferInfo binOffsetsBufferInfo{};
-			binOffsetsBufferInfo.buffer = binOffsetsBuffer;
+			binOffsetsBufferInfo.buffer = binOffsetsBuffer.buffer;
 			binOffsetsBufferInfo.offset = 0;
 			binOffsetsBufferInfo.range = sizeof(uint32_t) * paddedParticleBlockCount;
 
@@ -1224,7 +1209,7 @@ private:
 			descriptorWrites[binding].pBufferInfo = &binOffsetsBufferInfo;
 
 			VkDescriptorBufferInfo binSumBufferInfo{};
-			binSumBufferInfo.buffer = binSumBuffer;
+			binSumBufferInfo.buffer = binSumBuffer.buffer;
 			binSumBufferInfo.offset = 0;
 			binSumBufferInfo.range = sizeof(uint32_t) * BLOCK_KERNEL_SIZE * BLOCK_KERNEL_SIZE;
 
@@ -1238,7 +1223,7 @@ private:
 			descriptorWrites[binding].pBufferInfo = &binSumBufferInfo;
 
 			VkDescriptorBufferInfo binBufferReadInfo{};
-			binBufferReadInfo.buffer = binBuffers[(i + 2 - 1) % 2];
+			binBufferReadInfo.buffer = binBuffers[(i + 2 - 1) % 2].buffer;
 			binBufferReadInfo.offset = 0;
 			binBufferReadInfo.range = sizeof(Bin) * binCount;
 
@@ -1252,7 +1237,7 @@ private:
 			descriptorWrites[binding].pBufferInfo = &binBufferReadInfo;
 
 			VkDescriptorBufferInfo BinBufferWriteInfo{};
-			BinBufferWriteInfo.buffer = binBuffers[i];
+			BinBufferWriteInfo.buffer = binBuffers[i].buffer;
 			BinBufferWriteInfo.offset = 0;
 			BinBufferWriteInfo.range = sizeof(Bin) * binCount;
 
@@ -1266,7 +1251,7 @@ private:
 			descriptorWrites[binding].pBufferInfo = &BinBufferWriteInfo;
 
 			VkDescriptorBufferInfo scatterIndirectDispatchBufferReadInfo{};
-			scatterIndirectDispatchBufferReadInfo.buffer = scatterIndirectDispatchBuffers[(i + 2 - 1) % 2];
+			scatterIndirectDispatchBufferReadInfo.buffer = scatterIndirectDispatchBuffers[(i + 2 - 1) % 2].buffer;
 			scatterIndirectDispatchBufferReadInfo.offset = 0;
 			scatterIndirectDispatchBufferReadInfo.range = sizeof(ScatterDispatchData);
 
@@ -1280,7 +1265,7 @@ private:
 			descriptorWrites[binding].pBufferInfo = &scatterIndirectDispatchBufferReadInfo;
 
 			VkDescriptorBufferInfo scatterIndirectDispatchBufferWriteInfo{};
-			scatterIndirectDispatchBufferWriteInfo.buffer = scatterIndirectDispatchBuffers[i];
+			scatterIndirectDispatchBufferWriteInfo.buffer = scatterIndirectDispatchBuffers[i].buffer;
 			scatterIndirectDispatchBufferWriteInfo.offset = 0;
 			scatterIndirectDispatchBufferWriteInfo.range = sizeof(ScatterDispatchData);
 
@@ -1321,7 +1306,7 @@ private:
 			std::array<VkWriteDescriptorSet, 2> descriptorWrites{};
 
 			VkDescriptorBufferInfo uniformBufferInfo{};
-			uniformBufferInfo.buffer = parameterBuffers[i];
+			uniformBufferInfo.buffer = parameterBuffers[i].buffer;
 			uniformBufferInfo.offset = 0;
 			uniformBufferInfo.range = sizeof(ParameterUBO);
 
@@ -1335,7 +1320,7 @@ private:
 			descriptorWrites[binding].pBufferInfo = &uniformBufferInfo;
 
 			VkDescriptorBufferInfo particleBufferInfo{};
-			particleBufferInfo.buffer = graphicsBuffers[i];
+			particleBufferInfo.buffer = graphicsBuffers[i].buffer;
 			particleBufferInfo.offset = 0;
 			particleBufferInfo.range = sizeof(Particle) * PARTICLE_COUNT;
 
@@ -1569,7 +1554,7 @@ private:
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
 
 		VkDeviceSize offsets[] = { 0 };
-		vkCmdBindVertexBuffers(commandBuffer, 0, 1, &graphicsBuffers[currentFrame], offsets);
+		vkCmdBindVertexBuffers(commandBuffer, 0, 1, &graphicsBuffers[currentFrame].buffer, offsets);
 
 		vkCmdDraw(commandBuffer, PARTICLE_COUNT, 1, 0, 0);
 
@@ -1684,7 +1669,7 @@ private:
 			//
 
 			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, scatterComputePipeline);
-			vkCmdDispatchIndirect(commandBuffer, scatterIndirectDispatchBuffers[(currentCompute + 2 - 1) % 2], 0);
+			vkCmdDispatchIndirect(commandBuffer, scatterIndirectDispatchBuffers[(currentCompute + 2 - 1) % 2].buffer, 0);
 
 			vkCmdPipelineBarrier(commandBuffer,
 				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -1724,7 +1709,7 @@ private:
 		}
 
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, graphicsscatterComputePipeline);
-		vkCmdDispatchIndirect(commandBuffer, scatterIndirectDispatchBuffers[(currentCompute + 2 * 2 - 2) % 2], 0);
+		vkCmdDispatchIndirect(commandBuffer, scatterIndirectDispatchBuffers[(currentCompute + 2 * 2 - 2) % 2].buffer, 0);
 
 		if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS)
 		{
@@ -1820,16 +1805,9 @@ private:
 	void createShaderStorageBuffers()
 	{
 		binBuffers.resize(2);
-		binBuffersMemory.resize(2);
-
 		graphicsBuffers.resize(2);
-		graphicsBuffersMemory.resize(2);
-
 		vBuffers.resize(2);
-		vBuffersMemory.resize(2);
-
 		scatterIndirectDispatchBuffers.resize(2);
-		scatterIndirectDispatchBuffersMemory.resize(2);
 
 		float pi = 3.14159265358979323846f;
 		float worldR = size * (dimensions / 2) * dx;
@@ -1904,141 +1882,150 @@ private:
 		// Bins
 		VkDeviceSize bufferSize = sizeof(Bin) * binCount;
 
-		VkBuffer stagingBuffer;
-		VkDeviceMemory stagingBufferMemory;
-		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
-
-		void* data;
-		vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-		memcpy(data, bins.data(), (size_t)bufferSize);
-		vkUnmapMemory(device, stagingBufferMemory);
+		val::AllocatedBuffer stagingBuffer = createStagingBuffer(bufferSize);
+		memcpy(stagingBuffer.mapped, bins.data(), (size_t)bufferSize);
 
 		for (size_t i = 0; i < 2; i++)
 		{
-			createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, binBuffers[i], binBuffersMemory[i]);
+			binBuffers[i] = bufferAllocator.create({
+				bufferSize,
+				val::BufferUsage::Storage,
+				val::BufferLifetime::Static
+				});
 
-			copyBuffer(stagingBuffer, binBuffers[i], bufferSize);
+			copyBuffer(stagingBuffer.buffer, binBuffers[i].buffer, bufferSize);
 		}
 
-		vkDestroyBuffer(device, stagingBuffer, nullptr);
-		vkFreeMemory(device, stagingBufferMemory, nullptr);
+		stagingBuffer.dispose();
 		//
 
 		// V
 		std::vector<glm::vec2> v(cells);
 		bufferSize = sizeof(glm::vec2) * cells;
-		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
 
-		vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-		memcpy(data, v.data(), (size_t)bufferSize);
-		vkUnmapMemory(device, stagingBufferMemory);
+		stagingBuffer = createStagingBuffer(bufferSize);
+		memcpy(stagingBuffer.mapped, v.data(), (size_t)bufferSize);
 
 		for (size_t i = 0; i < 2; i++)
 		{
-			createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vBuffers[i], vBuffersMemory[i]);
+			vBuffers[i] = bufferAllocator.create({
+				bufferSize,
+				val::BufferUsage::Storage,
+				val::BufferLifetime::Static
+				});
 
-			copyBuffer(stagingBuffer, vBuffers[i], bufferSize);
+			copyBuffer(stagingBuffer.buffer, vBuffers[i].buffer, bufferSize);
 		}
 
-		vkDestroyBuffer(device, stagingBuffer, nullptr);
-		vkFreeMemory(device, stagingBufferMemory, nullptr);
+		stagingBuffer.dispose();
 		//
 
 		// M
 		std::vector<float> m(cells);
 		bufferSize = sizeof(float) * cells;
-		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
 
-		vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-		memcpy(data, m.data(), (size_t)bufferSize);
-		vkUnmapMemory(device, stagingBufferMemory);
+		stagingBuffer = createStagingBuffer(bufferSize);
+		memcpy(stagingBuffer.mapped, m.data(), (size_t)bufferSize);
 
-		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, mBuffer, mBufferMemory);
-		copyBuffer(stagingBuffer, mBuffer, bufferSize);
+		mBuffer = bufferAllocator.create({
+			bufferSize,
+			val::BufferUsage::Storage,
+			val::BufferLifetime::Static
+			});
 
-		vkDestroyBuffer(device, stagingBuffer, nullptr);
-		vkFreeMemory(device, stagingBufferMemory, nullptr);
+		copyBuffer(stagingBuffer.buffer, mBuffer.buffer, bufferSize);
+
+		stagingBuffer.dispose();
 		//
 
 		// Histogram
 		std::vector<uint32_t> h(paddedParticleBlockCount);
 		bufferSize = sizeof(uint32_t) * paddedParticleBlockCount;
-		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
+		
+		stagingBuffer = createStagingBuffer(bufferSize);
+		memcpy(stagingBuffer.mapped, h.data(), (size_t)bufferSize);
 
-		vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-		memcpy(data, h.data(), (size_t)bufferSize);
-		vkUnmapMemory(device, stagingBufferMemory);
+		histogramBuffer = bufferAllocator.create({
+			bufferSize,
+			val::BufferUsage::Storage,
+			val::BufferLifetime::Static
+			});
 
-		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, histogramBuffer, histogramBufferMemory);
-		copyBuffer(stagingBuffer, histogramBuffer, bufferSize);
+		copyBuffer(stagingBuffer.buffer, histogramBuffer.buffer, bufferSize);
 
-		vkDestroyBuffer(device, stagingBuffer, nullptr);
-		vkFreeMemory(device, stagingBufferMemory, nullptr);
+		stagingBuffer.dispose();
 		//
 
 		// BinCount
 		bufferSize = sizeof(uint32_t) * paddedParticleBlockCount;
-		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
 
-		vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-		memcpy(data, binCounts.data(), (size_t)bufferSize);
-		vkUnmapMemory(device, stagingBufferMemory);
+		stagingBuffer = createStagingBuffer(bufferSize);
+		memcpy(stagingBuffer.mapped, binCounts.data(), (size_t)bufferSize);
 
-		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, binCountBuffer, binCountBufferMemory);
-		copyBuffer(stagingBuffer, binCountBuffer, bufferSize);
+		binCountBuffer = bufferAllocator.create({
+			bufferSize,
+			val::BufferUsage::Storage,
+			val::BufferLifetime::Static
+			});
 
-		vkDestroyBuffer(device, stagingBuffer, nullptr);
-		vkFreeMemory(device, stagingBufferMemory, nullptr);
+		copyBuffer(stagingBuffer.buffer, binCountBuffer.buffer, bufferSize);
+
+		stagingBuffer.dispose();
 		//
 
 		// BinOffsets
 		bufferSize = sizeof(uint32_t) * paddedParticleBlockCount;
-		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
 
-		vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-		memcpy(data, binOffsets.data(), (size_t)bufferSize);
-		vkUnmapMemory(device, stagingBufferMemory);
+		stagingBuffer = createStagingBuffer(bufferSize);
+		memcpy(stagingBuffer.mapped, binOffsets.data(), (size_t)bufferSize);
 
-		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, binOffsetsBuffer, binOffsetsBufferMemory);
-		copyBuffer(stagingBuffer, binOffsetsBuffer, bufferSize);
+		binOffsetsBuffer = bufferAllocator.create({
+			bufferSize,
+			val::BufferUsage::Storage,
+			val::BufferLifetime::Static
+			});
 
-		vkDestroyBuffer(device, stagingBuffer, nullptr);
-		vkFreeMemory(device, stagingBufferMemory, nullptr);
+		copyBuffer(stagingBuffer.buffer, binOffsetsBuffer.buffer, bufferSize);
+
+		stagingBuffer.dispose();
 		//
 
 		// local sums
 		std::vector<uint32_t> emptySums(BLOCK_KERNEL_SIZE * BLOCK_KERNEL_SIZE);
 		bufferSize = sizeof(uint32_t) * BLOCK_KERNEL_SIZE * BLOCK_KERNEL_SIZE;
-		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
 
-		vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-		memcpy(data, emptySums.data(), (size_t)bufferSize);
-		vkUnmapMemory(device, stagingBufferMemory);
+		stagingBuffer = createStagingBuffer(bufferSize);
+		memcpy(stagingBuffer.mapped, emptySums.data(), (size_t)bufferSize);
 
-		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, binSumBuffer, binSumBufferMemory);
-		copyBuffer(stagingBuffer, binSumBuffer, bufferSize);
+		binSumBuffer = bufferAllocator.create({
+			bufferSize,
+			val::BufferUsage::Storage,
+			val::BufferLifetime::Static
+			});
 
-		vkDestroyBuffer(device, stagingBuffer, nullptr);
-		vkFreeMemory(device, stagingBufferMemory, nullptr);
+		copyBuffer(stagingBuffer.buffer, binSumBuffer.buffer, bufferSize);
+
+		stagingBuffer.dispose();
 		//
 		
 		// Particles
 		bufferSize = sizeof(Particle) * PARTICLE_COUNT;
-		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
 
-		vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-		memcpy(data, particles.data(), (size_t)bufferSize);
-		vkUnmapMemory(device, stagingBufferMemory);
+		stagingBuffer = createStagingBuffer(bufferSize);
+		memcpy(stagingBuffer.mapped, particles.data(), (size_t)bufferSize);
 		
 		for (size_t i = 0; i < 2; i++)
 		{
-			createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, graphicsBuffers[i], graphicsBuffersMemory[i]);
+			graphicsBuffers[i] = bufferAllocator.create({
+				bufferSize,
+				val::BufferUsage::VertexStorage,
+				val::BufferLifetime::Static
+				});
 
-			copyBuffer(stagingBuffer, graphicsBuffers[i], bufferSize);
+			copyBuffer(stagingBuffer.buffer, graphicsBuffers[i].buffer, bufferSize);
 		}
 
-		vkDestroyBuffer(device, stagingBuffer, nullptr);
-		vkFreeMemory(device, stagingBufferMemory, nullptr);
+		stagingBuffer.dispose();
 		//
 
 		// Scatter indirect dispatch
@@ -2048,26 +2035,37 @@ private:
 		scatterDispatchData.dispatchY = 1;
 		scatterDispatchData.dispatchZ = 1;
 
-		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
-
-		vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-		memcpy(data, &scatterDispatchData, (size_t)bufferSize);
-		vkUnmapMemory(device, stagingBufferMemory);
+		stagingBuffer = createStagingBuffer(bufferSize);
+		memcpy(stagingBuffer.mapped, &scatterDispatchData, (size_t)bufferSize);
 
 		for (size_t i = 0; i < 2; i++)
 		{
-			createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, scatterIndirectDispatchBuffers[i], scatterIndirectDispatchBuffersMemory[i]);
+			scatterIndirectDispatchBuffers[i] = bufferAllocator.create({
+				bufferSize,
+				val::BufferUsage::Indirect,
+				val::BufferLifetime::Static
+				});
 
-			copyBuffer(stagingBuffer, scatterIndirectDispatchBuffers[i], bufferSize);
+			copyBuffer(stagingBuffer.buffer, scatterIndirectDispatchBuffers[i].buffer, bufferSize);
 		}
 
-		vkDestroyBuffer(device, stagingBuffer, nullptr);
-		vkFreeMemory(device, stagingBufferMemory, nullptr);
+		stagingBuffer.dispose();
 		//
 		
 		// Maybe create seperate transferqueue?
 		vkQueueWaitIdle(graphicsQueue);
 		//
+	}
+
+	val::AllocatedBuffer createStagingBuffer(VkDeviceSize bufferSize)
+	{
+		val::AllocatedBuffer stagingBuffer = bufferAllocator.create({
+			bufferSize,
+			val::BufferUsage::Staging,
+			val::BufferLifetime::Dynamic
+			});
+
+		return stagingBuffer;
 	}
 
 	uint32_t ceilIntDivision(uint32_t a, uint32_t b)
@@ -2080,20 +2078,22 @@ private:
 		VkDeviceSize bufferSize = sizeof(ParameterUBO);
 
 		parameterBuffers.resize(MAX_FRAMES_IN_FLIGHT);
-		parameterBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
-		parameterBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
 
 		cameraBuffers.resize(MAX_FRAMES_IN_FLIGHT);
-		cameraBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
-		cameraBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
-			createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, parameterBuffers[i], parameterBuffersMemory[i]);
-			vkMapMemory(device, parameterBuffersMemory[i], 0, bufferSize, 0, &parameterBuffersMapped[i]);
+			parameterBuffers[i] = bufferAllocator.create({
+				bufferSize,
+				val::BufferUsage::Uniform,
+				val::BufferLifetime::Dynamic
+				});
 
-			createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, cameraBuffers[i], cameraBuffersMemory[i]);
-			vkMapMemory(device, cameraBuffersMemory[i], 0, bufferSize, 0, &cameraBuffersMapped[i]);
+			cameraBuffers[i] = bufferAllocator.create({
+				bufferSize,
+				val::BufferUsage::Uniform,
+				val::BufferLifetime::Dynamic
+				});
 		}
 	}
 
@@ -2458,11 +2458,8 @@ private:
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
-			vkDestroyBuffer(device, parameterBuffers[i], nullptr);
-			vkFreeMemory(device, parameterBuffersMemory[i], nullptr);
-
-			vkDestroyBuffer(device, cameraBuffers[i], nullptr);
-			vkFreeMemory(device, cameraBuffersMemory[i], nullptr);
+			parameterBuffers[i].dispose();
+			cameraBuffers[i].dispose();
 		}
 
 		graphicsDescriptorAllocator.destroyPool(device);
@@ -2475,35 +2472,20 @@ private:
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
-			vkDestroyBuffer(device, vBuffers[i], nullptr);
-			vkFreeMemory(device, vBuffersMemory[i], nullptr);
-
-			vkDestroyBuffer(device, binBuffers[i], nullptr);
-			vkFreeMemory(device, binBuffersMemory[i], nullptr);
-
-			vkDestroyBuffer(device, scatterIndirectDispatchBuffers[i], nullptr);
-			vkFreeMemory(device, scatterIndirectDispatchBuffersMemory[i], nullptr);
+			vBuffers[i].dispose();
+			binBuffers[i].dispose();
+			scatterIndirectDispatchBuffers[i].dispose();
 		}
 
-		vkDestroyBuffer(device, mBuffer, nullptr);
-		vkFreeMemory(device, mBufferMemory, nullptr);
-
-		vkDestroyBuffer(device, histogramBuffer, nullptr);
-		vkFreeMemory(device, histogramBufferMemory, nullptr);
-
-		vkDestroyBuffer(device, binCountBuffer, nullptr);
-		vkFreeMemory(device, binCountBufferMemory, nullptr);
-
-		vkDestroyBuffer(device, binOffsetsBuffer, nullptr);
-		vkFreeMemory(device, binOffsetsBufferMemory, nullptr);
-
-		vkDestroyBuffer(device, binSumBuffer, nullptr);
-		vkFreeMemory(device, binSumBufferMemory, nullptr);
+		mBuffer.dispose();
+		histogramBuffer.dispose();
+		binCountBuffer.dispose();
+		binOffsetsBuffer.dispose();
+		binSumBuffer.dispose();
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
-			vkDestroyBuffer(device, graphicsBuffers[i], nullptr);
-			vkFreeMemory(device, graphicsBuffersMemory[i], nullptr);
+			graphicsBuffers[i].dispose();
 		}
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)

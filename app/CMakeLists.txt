@@ -10,4 +10,5 @@ target_link_libraries(MpmVulkan
 		dsl
 		ldl
 		iml
+		val
 )
