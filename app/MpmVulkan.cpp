@@ -346,7 +346,7 @@ private:
 	glm::vec2 cameraPos = glm::vec2(0);
 	float zoom = 1;
 	glm::vec2 wasd = glm::vec2(0);
-	float acceleration = 10.0f;
+	float acceleration = 5.0f;
 
 	void mainLoop()
 	{

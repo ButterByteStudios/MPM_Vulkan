@@ -31,7 +31,7 @@ void main()
 	gl_PointSize = 1.0;
 	
 	// Map the position from 0 - dimensions to 0 - (dimensions - 2);
-	vec2 pos = (inPosition * ubo.invDx - 1) / (ubo.dimensions - 2) * 2.0 - 1.0;
+	vec2 pos = (inPosition * ubo.invDx) / ubo.dimensions * 2.0 - 1.0;
 	vec2 camPos = vec2(cam.pos.x, -cam.pos.y);
 	vec2 offset = pos - camPos;
 	vec2 scaled = offset * cam.zoom;

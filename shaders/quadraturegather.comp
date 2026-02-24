@@ -13,6 +13,16 @@ layout(set = 0, std430, binding = BIND_VOLQ) writeonly buffer QuadratureVolumeSS
 	float VQ[];
 };
 
+layout(set = 0, std430, binding = BIND_GQR) writeonly buffer QuadratureGradientSSBOClear
+{
+	mat2 GQClear[];
+};
+
+layout(set = 0, std430, binding = BIND_GQW) writeonly buffer QuadratureGradientSSBOOut
+{
+	mat2 GQW[];
+};
+
 layout(set = 0, std430, binding = BIND_VQR) writeonly buffer QuadratureVelocitySSBOClear
 {
 	vec2 vQClear[];
@@ -41,11 +51,12 @@ void main()
     uint y = gl_GlobalInvocationID.y;
 
 	float invDx = ubo.invDx;
+	float dx = ubo.dx;
 	const float w = 1.0 / 4.0;
-	const vec2 d00 = vec2(-0.5,-0.5);
-	const vec2 d10 = vec2(0.5, -0.5);
-	const vec2 d01 = vec2(-0.5, 0.5);
-	const vec2 d11 = vec2(0.5, 0.5);
+	const vec2 d00 = vec2(-0.5,-0.5) * dx;
+	const vec2 d10 = vec2(0.5, -0.5) * dx;
+	const vec2 d01 = vec2(-0.5, 0.5) * dx;
+	const vec2 d11 = vec2(0.5, 0.5) * dx;
 
 	const vec2 dd00 = d00 * invDx * invDx;
 	const vec2 dd10 = d10 * invDx * invDx;
@@ -63,6 +74,7 @@ void main()
 	vQClear[i] = vec2(0);
 	TQ[i] = mat2(0);
 	VQ[i] = 0;
+	GQClear[i] = mat2(0);
 
 	vec2 v00 = vN[i00];
 	vec2 v10 = vN[i10];
@@ -101,4 +113,5 @@ void main()
 
 	// Convert momentum to velocity
 	vQ[i] = clamp(v + acceleration, -cflSpeed, cflSpeed);
+	//GQW[i] = G;
 }

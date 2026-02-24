@@ -23,6 +23,8 @@
 #define LOG2_BIN_SIZE (6)
 #define BIN_MASK (BIN_SIZE - 1u)
 
+const mat2 I = mat2(1.0);
+
 struct Bin
 {
 	mat2[BIN_SIZE] F;
