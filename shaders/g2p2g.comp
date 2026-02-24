@@ -65,8 +65,8 @@ uint morton(uint x, uint y)
 }
 
 #define S (4)
-#define LOG2_G (2)
-#define G_MASK (S - 1)
+#define LOG2_S (2)
+#define S_MASK (S - 1)
 #define S2 (S * S)
 #define PADDED_G_DIMS (S * 2)
 #define G_DIMS (PADDED_G_DIMS - 2)
@@ -75,7 +75,7 @@ uint morton(uint x, uint y)
 
 uint quadratureSubblockBlockIndex(uint x, uint y)
 {
-	return x * PADDED_G_DIMS + y;
+	return x * G_DIMS + y;
 }
 
 layout(local_size_x = BIN_SIZE, local_size_y = 1, local_size_z = 1) in;
@@ -128,14 +128,14 @@ void main()
 	uint localIndex = pIndex & 15u; // pIndex % 16
 
 	// Local x and local y are ordered like this due to the collumn major ordering of the gridblocks in the partial morton
-	uint blockLocalX = localIndex >> LOG2_G; 
-	uint blockLocalY = localIndex & G_MASK;
+	uint blockLocalX = localIndex >> LOG2_S; 
+	uint blockLocalY = localIndex & S_MASK;
 
 	uint blockX = blockLocalX + subblockCellX;
 	uint blockY = blockLocalY + subblockCellY;
 
 	uint quadratureSubblockCellIndex = morton(gridBlockCellCoords.x + subblockCellX, gridBlockCellCoords.y + subblockCellY) + localIndex;
-	uint localSubblockIndex = quadratureSubblockBlockIndex(blockX, blockY) - BLOCK_OFFSET;
+	uint localSubblockIndex = quadratureSubblockBlockIndex(blockX - 1, blockY - 1);
 
 	if (blockX > 0 && blockX < PADDED_G_DIMS - 1 &&
 		blockY > 0 && blockY < PADDED_G_DIMS - 1)
@@ -176,10 +176,10 @@ void main()
 			float w01 = uw0 * vw1;
 			float w11 = uw1 * vw1;
 
-			uint i00 = quadratureSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0) - BLOCK_OFFSET;
-			uint i10 = quadratureSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 0) - BLOCK_OFFSET;
-			uint i01 = quadratureSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 1) - BLOCK_OFFSET;
-			uint i11 = quadratureSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 1) - BLOCK_OFFSET;
+			uint i00 = quadratureSubblockBlockIndex(coordsInBlock.x + 0 - 1, coordsInBlock.y + 0 - 1);
+			uint i10 = quadratureSubblockBlockIndex(coordsInBlock.x + 1 - 1, coordsInBlock.y + 0 - 1);
+			uint i01 = quadratureSubblockBlockIndex(coordsInBlock.x + 0 - 1, coordsInBlock.y + 1 - 1);
+			uint i11 = quadratureSubblockBlockIndex(coordsInBlock.x + 1 - 1, coordsInBlock.y + 1 - 1);
 
 			vec2 v00 = w00 * shVRGrid[i00];
 			vec2 v10 = w10 * shVRGrid[i10];
@@ -253,10 +253,10 @@ void main()
 			vec2 vm01 = w01 * (vm + ax0 + ay1);
 			vec2 vm11 = w11 * (vm + ax1 + ay1);
 
-			i00 = quadratureSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0) - BLOCK_OFFSET;
-			i10 = quadratureSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 0) - BLOCK_OFFSET;
-			i01 = quadratureSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 1) - BLOCK_OFFSET;
-			i11 = quadratureSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 1) - BLOCK_OFFSET;
+			i00 = quadratureSubblockBlockIndex(coordsInBlock.x + 0 - 1, coordsInBlock.y + 0 - 1);
+			i10 = quadratureSubblockBlockIndex(coordsInBlock.x + 1 - 1, coordsInBlock.y + 0 - 1);
+			i01 = quadratureSubblockBlockIndex(coordsInBlock.x + 0 - 1, coordsInBlock.y + 1 - 1);
+			i11 = quadratureSubblockBlockIndex(coordsInBlock.x + 1 - 1, coordsInBlock.y + 1 - 1);
 
 			atomicAdd(shVWGrid[i00].x, vm00.x);
 			atomicAdd(shVWGrid[i00].y, vm00.y);
@@ -319,7 +319,7 @@ void main()
 			atomicAdd(shTGrid[i11][0][1], tau[0][1] * w11);
 			atomicAdd(shTGrid[i11][1][1], tau[1][1] * w11);
 
-			uvec2 blockCoords = uvec2(cellPosition) >> LOG2_G;
+			uvec2 blockCoords = toBlockCoords(cellPosition);
 			uint bIndex = atomicAdd(histogram[blockIndex(blockCoords.x, blockCoords.y)], 1);
 			bins[binIndex].blockParticleIndex[pIndex] = bIndex;
 		}

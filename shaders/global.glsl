@@ -64,6 +64,11 @@ uint nodeIndex(uint x, uint y)
 	return x + y * ubo.nodeDimensions;
 }
 
+uvec2 toBlockCoords(vec2 a)
+{
+	return uvec2(a - 2) >> 2;
+}
+
 uint part1by1(uint x)
 {
 	x = (x | (x << 8)) & 0x00FF00FF;

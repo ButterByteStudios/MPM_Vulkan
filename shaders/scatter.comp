@@ -43,8 +43,8 @@ void main()
 	uint pId = binsIn[bIndex].particleId[currentPIndex];
 	uint blockParticleIndex = binsIn[bIndex].blockParticleIndex[currentPIndex];
 
-	ivec2 cellCoords = ivec2(pPos * invDx);
-	ivec2 blockCoords = cellCoords >> 2; // Divide by 4
+	vec2 cellPosition = pPos * invDx;
+	uvec2 blockCoords = toBlockCoords(cellPosition);
 	uint block = blockIndex(blockCoords.x, blockCoords.y);
 
 	uint binInBlock = blockParticleIndex >> LOG2_BIN_SIZE;

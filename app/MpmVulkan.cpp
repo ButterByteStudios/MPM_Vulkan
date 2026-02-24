@@ -31,7 +31,7 @@
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 800;
 const uint32_t MAX_FRAMES_IN_FLIGHT = 2;
-const uint32_t PARTICLE_COUNT = 1 << 17;
+const uint32_t PARTICLE_COUNT = 1 << 12;
 const uint32_t BIN_KERNEL_SIZE = 1;
 const uint32_t GRID_KERNEL_SIZE = 32;
 const uint32_t BLOCK_KERNEL_SIZE = 16;
@@ -1773,11 +1773,11 @@ private:
 				0, nullptr,
 				0, nullptr
 			);
-
+			
 			// Theres no dependency between particle reordering and grid so change the positioning
 			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, nodeGatherComputePipeline);
 			vkCmdDispatch(commandBuffer, ceilIntDivision(nodeDimensions, GRID_KERNEL_SIZE), ceilIntDivision(nodeDimensions, GRID_KERNEL_SIZE), 1);
-
+			
 			vkCmdPipelineBarrier(commandBuffer,
 				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -1786,7 +1786,7 @@ private:
 				0, nullptr,
 				0, nullptr
 			);
-
+			
 			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, quadratureGatherComputePipeline);
 			vkCmdDispatch(commandBuffer, quadratureDimensions / GRID_KERNEL_SIZE, quadratureDimensions / GRID_KERNEL_SIZE, 1);
 
@@ -1931,8 +1931,8 @@ private:
 
 			glm::vec2 cellPos = glm::vec2(x, y);
 			glm::vec2 pos = cellPos * dx;
-			glm::ivec2 coords = glm::ivec2(cellPos);
-			glm::ivec2 blockCoords = coords >> 2;
+			glm::uvec2 coords = glm::uvec2(cellPos - 2.0f);
+			glm::uvec2 blockCoords = coords >> 2u;
 			uint32_t blockIndex = blockCoords.x + blockCoords.y * particleBlockDimensions;
 
 			blockIndices[i] = blockIndex;
