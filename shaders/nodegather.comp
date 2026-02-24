@@ -1,0 +1,124 @@
+#version 450
+
+#extension GL_ARB_shading_language_include: enable
+#include "global.glsl"
+
+layout(set = 0, std430, binding = BIND_VQW) readonly buffer QuadratureVelocitySSBOIn
+{
+	vec2 vQ[];
+};
+
+layout(set = 0, std430, binding = BIND_MQ) readonly buffer QuadratureMassSSBOIn
+{
+	float mQ[];
+};
+
+layout(set = 0, std430, binding = BIND_GQW) readonly buffer QuadratureGradientSSBOIn
+{
+	mat2 GQ[];
+};
+
+layout(set = 0, std430, binding = BIND_VOLQ) readonly buffer QuadratureVolumeSSBOIn
+{
+	float VQ[];
+};
+
+layout(set = 0, std430, binding = BIND_TQ) readonly buffer QuadratureTauSSBOIn
+{
+	mat2 TQ[];
+};
+
+layout(set = 0, std430, binding = BIND_VN) writeonly buffer NodeVelocitySSBOOut
+{
+	vec2 vN[];
+};
+
+layout(set = 0, std430, binding = BIND_MN) writeonly buffer NodeMassSSBOOut
+{
+	float mN[];
+};
+
+layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
+
+// Make sure to bounds check since nodes arent divisible by 32 in each axis
+void main()
+{
+    uint x = gl_GlobalInvocationID.x;
+    uint y = gl_GlobalInvocationID.y;
+
+	float invDx = ubo.invDx;
+	const float w = 1.0 / 4.0;
+	const vec2 d00 = vec2(0.5, 0.5);
+	const vec2 d10 = vec2(-0.5, 0.5);
+	const vec2 d01 = vec2(0.5, -0.5);
+	const vec2 d11 = vec2(-0.5, -0.5);
+
+	const vec2 dd00 = d00 * invDx * invDx;
+	const vec2 dd10 = d10 * invDx * invDx;
+	const vec2 dd01 = d01 * invDx * invDx;
+	const vec2 dd11 = d11 * invDx * invDx;
+
+	if (x < 1 || x >= ubo.nodeDimensions - 1 || 
+		y < 1 || y >= ubo.nodeDimensions - 1)
+	{
+		return;
+	}
+    
+    uint i00 = partialMorton(x - 1, y - 1);
+	uint i10 = partialMorton(x , y - 1);
+	uint i01 = partialMorton(x - 1, y);
+	uint i11 = partialMorton(x, y);
+	uint i = nodeIndex(x, y);
+
+	float m00 = mQ[i00];
+	float m10 = mQ[i10];
+	float m01 = mQ[i01];
+	float m11 = mQ[i11];
+	float m = (m00 + m10 + m01 + m11) * w;
+
+	vec2 mv00 = vQ[i00] + GQ[i00] * d00;
+	vec2 mv10 = vQ[i10] + GQ[i10] * d10;
+	vec2 mv01 = vQ[i01] + GQ[i01] * d01;
+	vec2 mv11 = vQ[i11] + GQ[i11] * d11;
+	vec2 mv = (mv00 + mv10 + mv01 + mv11) * w;
+	
+	vec2 f00 = VQ[i00] * TQ[i00] * dd00;
+	vec2 f10 = VQ[i10] * TQ[i10] * dd10;
+	vec2 f01 = VQ[i01] * TQ[i01] * dd01;
+	vec2 f11 = VQ[i11] * TQ[i11] * dd11;
+	vec2 f = -(f00 + f10 + f01 + f11);
+
+	vN[i] = (mv + ubo.dt * f) / m;
+}
+
+// Move boundary conditions to the quadrature gather
+//bool left = x <= 4;
+//bool right = x >= ubo.dimensions - 4;
+//bool down = y <= 4;
+//bool up = y >= ubo.dimensions - 4;
+
+//vec2 acceleration = vec2(0, -9.81 * ubo.dt) + ubo.speed * ubo.dt;
+
+//if (m == 0)
+//{
+//	vQ[i] = vec2(0);
+//	return;
+//}
+
+//if (right || left)
+//{
+//	v.x = 0;
+//	acceleration.x = 0;
+//}
+
+//if (up || down)
+//{
+//	v.y = 0;
+//	acceleration.y = 0;
+//}
+
+// Put in pushconstants maybe
+//float cflSpeed = ubo.dx * ubo.invDt;
+
+// Convert momentum to velocity
+//vQ[i] = clamp((v / m) + acceleration, -cflSpeed, cflSpeed);

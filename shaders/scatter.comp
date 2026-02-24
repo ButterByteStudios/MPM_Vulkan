@@ -43,8 +43,7 @@ void main()
 	uint pId = binsIn[bIndex].particleId[currentPIndex];
 	uint blockParticleIndex = binsIn[bIndex].blockParticleIndex[currentPIndex];
 
-	// Find block index from pos = (floor(cellpos + 0.5) - 2) / 4
-	ivec2 cellCoords = ivec2(pPos * invDx - 1.5); // Use integer round to floor
+	ivec2 cellCoords = ivec2(pPos * invDx);
 	ivec2 blockCoords = cellCoords >> 2; // Divide by 4
 	uint block = blockIndex(blockCoords.x, blockCoords.y);
 

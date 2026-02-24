@@ -1,14 +1,19 @@
-#define BIND_VR (0)
-#define BIND_VW (1)
-#define BIND_M (2)
+#define BIND_VQR (0)
+#define BIND_VQW (1)
+#define BIND_MQ (2)
 #define BIND_H (3)
 #define BIND_BC (4)
 #define BIND_BO (5)
 #define BIND_BS (6)
 #define BIND_BR (7)
 #define BIND_BW (8)
-#define BIND_SIDR (9)
-#define BIND_SIDW (10)
+#define BIND_SID (9)
+#define BIND_GQR (10)
+#define BIND_GQW (11)
+#define BIND_VOLQ (12)
+#define BIND_TQ (13)
+#define BIND_VN (14)
+#define BIND_MN (15)
 
 #define BIND_UBO (0)
 #define BIND_G (1)
@@ -42,7 +47,8 @@ layout(set = 1, binding = BIND_UBO) uniform ParameterUBO
 	float rho;
 	float dx;
 	float invDx;
-	uint dimensions;
+	uint quadratureDimensions;
+	uint nodeDimensions;
 	uint blockDimensions;
 	float dt;
 	float invDt;
@@ -51,6 +57,11 @@ layout(set = 1, binding = BIND_UBO) uniform ParameterUBO
 uint blockIndex(uint x, uint y)
 {
 	return x + y * ubo.blockDimensions;
+}
+
+uint nodeIndex(uint x, uint y)
+{
+	return x + y * ubo.nodeDimensions;
 }
 
 uint part1by1(uint x)

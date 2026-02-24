@@ -1,0 +1,104 @@
+#version 450
+
+#extension GL_ARB_shading_language_include: enable
+#include "global.glsl"
+
+layout(set = 0, std430, binding = BIND_TQ) writeonly buffer QuadratureTauSSBOOut
+{
+	mat2 TQ[];
+};
+
+layout(set = 0, std430, binding = BIND_VOLQ) writeonly buffer QuadratureVolumeSSBOOut
+{
+	float VQ[];
+};
+
+layout(set = 0, std430, binding = BIND_VQR) writeonly buffer QuadratureVelocitySSBOClear
+{
+	vec2 vQClear[];
+};
+
+layout(set = 0, std430, binding = BIND_VQW) writeonly buffer QuadratureVelocitySSBONormalize
+{
+	vec2 vQ[];
+};
+
+layout(set = 0, std430, binding = BIND_MQ) writeonly buffer QuadratureMassSSBOIn
+{
+	float mQ[];
+};
+
+layout(set = 0, std430, binding = BIND_VN) readonly buffer NodeVelocitySSBOIn
+{
+	vec2 vN[];
+};
+
+layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
+
+void main()
+{
+	uint x = gl_GlobalInvocationID.x;
+    uint y = gl_GlobalInvocationID.y;
+
+	float invDx = ubo.invDx;
+	const float w = 1.0 / 4.0;
+	const vec2 d00 = vec2(-0.5,-0.5);
+	const vec2 d10 = vec2(0.5, -0.5);
+	const vec2 d01 = vec2(-0.5, 0.5);
+	const vec2 d11 = vec2(0.5, 0.5);
+
+	const vec2 dd00 = d00 * invDx * invDx;
+	const vec2 dd10 = d10 * invDx * invDx;
+	const vec2 dd01 = d01 * invDx * invDx;
+	const vec2 dd11 = d11 * invDx * invDx;
+    
+    uint i00 = nodeIndex(x, y);
+	uint i10 = nodeIndex(x + 1, y);
+	uint i01 = nodeIndex(x, y + 1);
+	uint i11 = nodeIndex(x + 1, y + 1);
+	uint i = partialMorton(x, y);
+
+	// Reset mass for next steps scatter
+	mQ[i] = 0;
+	vQClear[i] = vec2(0);
+	TQ[i] = mat2(0);
+	VQ[i] = 0;
+
+	vec2 v00 = vN[i00];
+	vec2 v10 = vN[i10];
+	vec2 v01 = vN[i01];
+	vec2 v11 = vN[i11];
+	vec2 v = (v00 + v10 + v01 + v11) * w;
+
+	mat2 G = mat2(0.0);
+	G += outerProduct(v00, dd00);
+	G += outerProduct(v10, dd10);
+	G += outerProduct(v01, dd01);
+	G += outerProduct(v11, dd11);
+
+	// 3 outer node halos are boundaries so particles stay in particle block territory
+	vec2 acceleration = vec2(0, -9.81 * ubo.dt) + ubo.speed * ubo.dt;
+
+	bool left = x <= 3;
+	bool right = x >= ubo.quadratureDimensions - 3;
+	bool down = y <= 3;
+	bool up = y >= ubo.quadratureDimensions - 3;
+
+	if (right || left)
+	{
+		v.x = 0;
+		acceleration.x = 0;
+	}
+
+	if (up || down)
+	{
+		v.y = 0;
+		acceleration.y = 0;
+	}
+
+	// Put in pushconstants maybe
+	float cflSpeed = ubo.dx * ubo.invDt;
+
+	// Convert momentum to velocity
+	vQ[i] = clamp(v + acceleration, -cflSpeed, cflSpeed);
+}
