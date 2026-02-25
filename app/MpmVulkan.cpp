@@ -31,7 +31,7 @@
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 800;
 const uint32_t MAX_FRAMES_IN_FLIGHT = 2;
-const uint32_t PARTICLE_COUNT = 1 << 12;
+const uint32_t PARTICLE_COUNT = 1 << 15;
 const uint32_t BIN_KERNEL_SIZE = 1;
 const uint32_t GRID_KERNEL_SIZE = 32;
 const uint32_t BLOCK_KERNEL_SIZE = 16;
@@ -336,10 +336,10 @@ private:
 	float sensitivity = 0.002f;
 	float scrollSensitivity = 0.05f;
 
-	float E = 100000;
-	float v = 0.45f;
+	float E = 1000;
+	float v = 0.40f;
 	float rho = 2000;
-	float dx = 1.0f / nodeDimensions;
+	float dx = 1.0f;
 	float dt = 0.0002f;
 	float size = 0.2f;
 	uint32_t substeps = 15;
@@ -1931,7 +1931,7 @@ private:
 
 			glm::vec2 cellPos = glm::vec2(x, y);
 			glm::vec2 pos = cellPos * dx;
-			glm::uvec2 coords = glm::uvec2(cellPos - 2.0f);
+			glm::uvec2 coords = glm::uvec2(cellPos - 2.5f);
 			glm::uvec2 blockCoords = coords >> 2u;
 			uint32_t blockIndex = blockCoords.x + blockCoords.y * particleBlockDimensions;
 

@@ -53,15 +53,15 @@ void main()
 	float invDx = ubo.invDx;
 	float dx = ubo.dx;
 	const float w = 1.0 / 4.0;
-	const vec2 d00 = vec2(-0.5,-0.5) * dx;
-	const vec2 d10 = vec2(0.5, -0.5) * dx;
-	const vec2 d01 = vec2(-0.5, 0.5) * dx;
-	const vec2 d11 = vec2(0.5, 0.5) * dx;
+	vec2 d00 = vec2(-0.5,-0.5) * dx;
+	vec2 d10 = vec2(0.5, -0.5) * dx;
+	vec2 d01 = vec2(-0.5, 0.5) * dx;
+	vec2 d11 = vec2(0.5, 0.5) * dx;
 
-	const vec2 dd00 = d00 * invDx * invDx;
-	const vec2 dd10 = d10 * invDx * invDx;
-	const vec2 dd01 = d01 * invDx * invDx;
-	const vec2 dd11 = d11 * invDx * invDx;
+	vec2 dd00 = d00 * invDx * invDx;
+	vec2 dd10 = d10 * invDx * invDx;
+	vec2 dd01 = d01 * invDx * invDx;
+	vec2 dd11 = d11 * invDx * invDx;
     
     uint i00 = nodeIndex(x, y);
 	uint i10 = nodeIndex(x + 1, y);
@@ -76,6 +76,7 @@ void main()
 	VQ[i] = 0;
 	GQClear[i] = mat2(0);
 
+
 	vec2 v00 = vN[i00];
 	vec2 v10 = vN[i10];
 	vec2 v01 = vN[i01];
@@ -88,30 +89,6 @@ void main()
 	G += outerProduct(v01, dd01);
 	G += outerProduct(v11, dd11);
 
-	// 3 outer node halos are boundaries so particles stay in particle block territory
-	vec2 acceleration = vec2(0, -9.81 * ubo.dt) + ubo.speed * ubo.dt;
-
-	bool left = x <= 3;
-	bool right = x >= ubo.quadratureDimensions - 3;
-	bool down = y <= 3;
-	bool up = y >= ubo.quadratureDimensions - 3;
-
-	if (right || left)
-	{
-		v.x = 0;
-		acceleration.x = 0;
-	}
-
-	if (up || down)
-	{
-		v.y = 0;
-		acceleration.y = 0;
-	}
-
-	// Put in pushconstants maybe
-	float cflSpeed = ubo.dx * ubo.invDt;
-
-	// Convert momentum to velocity
-	vQ[i] = clamp(v + acceleration, -cflSpeed, cflSpeed);
-	//GQW[i] = G;
+	vQ[i] = v;
+	GQW[i] = G * w;
 }

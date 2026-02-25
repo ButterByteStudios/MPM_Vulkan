@@ -68,7 +68,7 @@ uint nodeIndex(uint x, uint y)
 
 uvec2 toBlockCoords(vec2 a)
 {
-	return uvec2(a - 2) >> 2;
+	return uvec2(a - 2.5) >> 2;
 }
 
 uint part1by1(uint x)
