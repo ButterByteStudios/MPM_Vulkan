@@ -158,13 +158,19 @@ void main()
 			uvec2 coordsInBlock = coords - gridBlockCellCoords;
 			
 			// Distance from 00 to the point
-			vec2 d = cellPosition - coords - 0.5;
+			vec2 d = coords - cellPosition + 0.5;
 
-			float uw0 = 1.0 - d.x;
-			float uw1 = d.x;
+			float dx0 = (d.x + 0) * dx;
+			float dx1 = (d.x + 1) * dx;
 
-			float vw0 = 1.0 - d.y;
-			float vw1 = d.y;
+			float dy0 = (d.y + 0) * dx;
+			float dy1 = (d.y + 1) * dx;
+
+			float uw0 = 1.0 + d.x;
+			float uw1 = -d.x;
+
+			float vw0 = 1.0 + d.y;
+			float vw1 = -d.y;
 
 			float w00 = uw0 * vw0;
 			float w10 = uw1 * vw0;
@@ -208,13 +214,19 @@ void main()
 			coords = uvec2(cellPosition - 0.5);
 			coordsInBlock = coords - gridBlockCellCoords;
 
-			d = cellPosition - coords - 0.5;
+			d = coords - cellPosition + 0.5;
 
-			uw0 = 1.0 - d.x;
-			uw1 = d.x;
+			dx0 = (d.x + 0) * dx;
+			dx1 = (d.x + 1) * dx;
 
-			vw0 = 1.0 - d.y;
-			vw1 = d.y;
+			dy0 = (d.y + 0) * dx;
+			dy1 = (d.y + 1) * dx;
+
+			uw0 = 1.0 + d.x;
+			uw1 = -d.x;
+
+			vw0 = 1.0 + d.y;
+			vw1 = -d.y;
 
 			w00 = uw0 * vw0;
 			w10 = uw1 * vw0;
@@ -236,11 +248,11 @@ void main()
 			vec2 vm = v * mass;
 			mat2 affine = G * mass;
 
-			vec2 ax0 = affine[0] * uw0 * dx;
-			vec2 ax1 = affine[0] * uw1 * dx;
+			vec2 ax0 = affine[0] * dx0 * dx;
+			vec2 ax1 = affine[0] * dx1 * dx;
 
-			vec2 ay0 = affine[1] * vw0 * dx;
-			vec2 ay1 = affine[1] * vw1 * dx;
+			vec2 ay0 = affine[1] * dy0 * dx;
+			vec2 ay1 = affine[1] * dy1 * dx;
 
 			vec2 vm00 = w00 * (vm + ax0 + ay0);
 			vec2 vm10 = w10 * (vm + ax1 + ay0);
