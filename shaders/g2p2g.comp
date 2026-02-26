@@ -4,19 +4,19 @@
 #extension GL_ARB_shading_language_include: enable
 #include "global.glsl"
 
-layout(set = 0, std430, binding = BIND_VR) readonly buffer GridVelocitySSBOIn
+layout(set = 0, std430, binding = BIND_VR) readonly buffer QuadVelocitySSBOIn
 {
-	vec2 vRGrid[];
+	vec2 vRQuad[];
 };
 
-layout(set = 0, std430, binding = BIND_VW) writeonly buffer GridVelocitySSBOOut
+layout(set = 0, std430, binding = BIND_VW) writeonly buffer QuadVelocitySSBOOut
 {
-	vec2 vWGrid[];
+	vec2 vWQuad[];
 };
 
-layout(set = 0, std430, binding = BIND_M) writeonly buffer GridMassSSBOOut
+layout(set = 0, std430, binding = BIND_M) writeonly buffer QuadMassSSBOOut
 {
-	float mGrid[];
+	float mQuad[];
 };
 
 layout(set = 0, std430, binding = BIND_H) writeonly buffer BlockHistogramSSBOOut
@@ -39,55 +39,32 @@ layout(set = 0, std430, binding = BIND_BR) buffer BinSSBOInOut
 	Bin bins[];
 };
 
-float qw0(float x)
-{
-	float xp = 1.5 - x;
-	return 0.5 * xp * xp;
-}
+#define S (4)
+#define LOG2_S (2)
+#define S_MASK (S - 1)
+#define S_DIMS (S * 2 - 2)
+#define PADDED_S_DIMS (S * 2)
+#define S_BLOCK (S_DIMS * S_DIMS)
 
-float qw1(float x)
+uint subblockIndex(uint x, uint y)
 {
-	float xp = x - 1.0;
-	return 0.75 - xp * xp;
-}
-
-float qw2(float x)
-{
-	float xp = x - 0.5;
-	return 0.5 * xp * xp;
-}
-
-uint morton(uint x, uint y)
-{
-	return (part1by1(x) << 1) | part1by1(y);
-}
-
-#define G (4)
-#define LOG2_G (2)
-#define G_MASK (G - 1)
-#define G2 (G * G)
-#define GBlockDimensions (G * 2)
-#define GBlock (GBlockDimensions * GBlockDimensions)
-
-uint gridSubblockBlockIndex(uint x, uint y)
-{
-	return x * GBlockDimensions + y;
+	return x * S_DIMS + y;
 }
 
 layout(local_size_x = BIN_SIZE, local_size_y = 1, local_size_z = 1) in;
 
 // Naming conventions
-// Gridblock = the G*G blocks comprising the grid
-// Particleblock = the G*G blocks used for the particle spatial hash. Spatially off by two gridcells from the gridblocks
+// Quadblock = the G*G blocks comprising the Quad
+// Particleblock = the G*G blocks used for the particle spatial hash. Spatially off by two Quadcells from the Quadblocks
 // Subblock = one of the 4 blocks loaded into shared memory
 // Local = things inside of a subblock
 // Coords = vec2 of the coordinates. suffix determines of what
 // Cell = a suffix denoting the prefix is in cellspace
 // Index = a suffix denoting the prefix is a flattened index
 
-shared vec2 shVRGrid[GBlock];
-shared vec2 shVWGrid[GBlock];
-shared float shMGrid[GBlock];
+shared vec2 shVRQuad[S_BLOCK];
+shared vec2 shVWQuad[S_BLOCK];
+shared float shMQuad[S_BLOCK];
 
 void main()
 {
@@ -100,10 +77,10 @@ void main()
 	float rho = ubo.rho;
 
 	uint pIndex = gl_LocalInvocationID.x;
-	ivec2 gridBlockCoords = ivec2(gl_WorkGroupID.xy);
-	ivec2 gridBlockCellCoords = gridBlockCoords * G;
+	ivec2 quadratureBlockCoords = ivec2(gl_WorkGroupID.xy);
+	ivec2 quadratureBlockCellCoords = quadratureBlockCoords * S;
 
-	uint block = blockIndex(gridBlockCoords.x, gridBlockCoords.y);
+	uint block = blockIndex(quadratureBlockCoords.x, quadratureBlockCoords.y);
 	uint binCount = blockBinCount[block];
 
 	if (binCount == 0)
@@ -112,25 +89,19 @@ void main()
 	}
 	uint baseBin = blockBinOffsets[block];
 
-	// Subblock x/y represent the subblock offsets determined by the bin
-	uint subblockIndex = pIndex >> 4;
-	uint subblockCellX = (subblockIndex & 1) * G;
-	uint subblockCellY = (subblockIndex >> 1) * G;
-	uint localIndex = pIndex & 15u; // pIndex % 16
+	uint subblockCellX = pIndex >> 3u; // divide by 8
+	uint subblockCellY = pIndex & 7u;
 
-	// Local x and local y are ordered like this due to the collumn major ordering of the gridblocks in the partial morton
-	uint blockLocalX = localIndex >> LOG2_G; 
-	uint blockLocalY = localIndex & G_MASK;
+	uint quadratureSubblockCellIndex = morton(quadratureBlockCellCoords.x + subblockCellX, quadratureBlockCellCoords.y + subblockCellY);
+	uint localSubblockIndex = subblockIndex(subblockCellX - 1, subblockCellY - 1);
 
-	uint blockX = blockLocalX + subblockCellX;
-	uint blockY = blockLocalY + subblockCellY;
-
-	uint gridSubblockCellIndex = morton(gridBlockCellCoords.x + subblockCellX, gridBlockCellCoords.y + subblockCellY) + localIndex;
-	uint localSubblockIndex = gridSubblockBlockIndex(blockX, blockY);
-
-	shVRGrid[localSubblockIndex] = vRGrid[gridSubblockCellIndex];
-	shVWGrid[localSubblockIndex] = vec2(0);
-	shMGrid[localSubblockIndex] = 0;
+	if (subblockCellX > 0 && subblockCellX < PADDED_S_DIMS - 1 &&
+		subblockCellY > 0 && subblockCellY < PADDED_S_DIMS - 1)
+	{
+		shVRQuad[localSubblockIndex] = vRQuad[quadratureSubblockCellIndex];
+		shVWQuad[localSubblockIndex] = vec2(0);
+		shMQuad[localSubblockIndex] = 0;
+	}
 
 	barrier();
 	
@@ -142,51 +113,44 @@ void main()
 		{
 			vec2 position = bins[binIndex].position[pIndex];
 			vec2 cellPosition = position * invDx;
-			ivec2 coords = ivec2(cellPosition - 0.5);
-			ivec2 coordsInBlock = coords - gridBlockCellCoords;
+			uvec2 coords = uvec2(cellPosition);
+			uvec2 coordsInBlock = coords - quadratureBlockCellCoords - 1;
 			
 			vec2 d = coords - cellPosition;
 
-			float dx0 = d.x * dx;
-			float dx1 = (1 + d.x) * dx;
-			float dx2 = (2 + d.x) * dx;
+			float dx0 = (d.x) * dx;
+			float dx1 = (d.x + 1) * dx;
 
-			float dy0 = d.y * dx;
-			float dy1 = (1 + d.y) * dx;
-			float dy2 = (2 + d.y) * dx;
+			float dy0 = (d.y) * dx;
+			float dy1 = (d.y + 1) * dx;
 
-			float uw0 = qw0(-d.x);
-			float uw1 = qw1(-d.x);
-			float uw2 = qw2(-d.x);
+			float uw0 = 1.0 + d.x;
+			float uw1 = -d.x;
 
-			float vw0 = qw0(-d.y);
-			float vw1 = qw1(-d.y);
-			float vw2 = qw2(-d.y);
+			float vw0 = 1.0 + d.y;
+			float vw1 = -d.y;
 
-			vec2 v00 = uw0 * vw0 * shVRGrid[gridSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0)];
-			vec2 v10 = uw1 * vw0 * shVRGrid[gridSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 0)];
-			vec2 v20 = uw2 * vw0 * shVRGrid[gridSubblockBlockIndex(coordsInBlock.x + 2, coordsInBlock.y + 0)];
+			float w00 = uw0 * vw0;
+			float w10 = uw1 * vw0;
+			float w01 = uw0 * vw1;
+			float w11 = uw1 * vw1;
 
-			vec2 v01 = uw0 * vw1 * shVRGrid[gridSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 1)];
-			vec2 v11 = uw1 * vw1 * shVRGrid[gridSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 1)];
-			vec2 v21 = uw2 * vw1 * shVRGrid[gridSubblockBlockIndex(coordsInBlock.x + 2, coordsInBlock.y + 1)];
+			uint i00 = subblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0);
+			uint i10 = subblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 0);
+			uint i01 = subblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 1);
+			uint i11 = subblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 1);
 
-			vec2 v02 = uw0 * vw2 * shVRGrid[gridSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 2)];
-			vec2 v12 = uw1 * vw2 * shVRGrid[gridSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 2)];
-			vec2 v22 = uw2 * vw2 * shVRGrid[gridSubblockBlockIndex(coordsInBlock.x + 2, coordsInBlock.y + 2)];
+			vec2 v00 = w00 * shVRQuad[i00];
+			vec2 v10 = w10 * shVRQuad[i10];
+			vec2 v01 = w01 * shVRQuad[i01];
+			vec2 v11 = w11 * shVRQuad[i11];
 
-			vec2 v = v00 + v10 + v20 + 
-					v01 + v11 + v21 + 
-					v02 + v12 + v22;
+			vec2 v = v00 + v10 + 
+					v01 + v11;
 
 			mat2 B = mat2(0);
-			B[0] = (v00 + v01 + v02) * dx0 +
-			 	(v10 + v11 + v12) * dx1 + 
-				(v20 + v21 + v22) * dx2;
-
-			B[1] = dy0 * (v00 + v10 + v20) +
-				dy1 * (v01 + v11 + v21) +
-				dy2 * (v02 + v12 + v22);
+			B[0] = v * dx0 + (v10 + v11) * dx;
+			B[1] = v * dy0 + dx * (v01 + v11);
 
 			float inv_D = 4.0 * invDx * invDx;
 			mat2 C = B * inv_D;
@@ -204,38 +168,28 @@ void main()
 			bins[binIndex].position[pIndex] = position;
 
 			cellPosition = position * invDx;
-			coords = ivec2(cellPosition - 0.5);
-			coordsInBlock = coords - gridBlockCellCoords;
+			coords = ivec2(cellPosition);
+			coordsInBlock = coords - quadratureBlockCellCoords - 1;
 
 			d = coords - cellPosition;
 
-			dx0 = d.x * dx;
-			dx1 = (1 + d.x) * dx;
-			dx2 = (2 + d.x) * dx;
+			dx0 = (d.x) * dx;
+			dx1 = (d.x + 1) * dx;
 
-			dy0 = d.y * dx;
-			dy1 = (1 + d.y) * dx;
-			dy2 = (2 + d.y) * dx;
-			
-			uw0 = qw0(-d.x);
-			uw1 = qw1(-d.x);
-			uw2 = qw2(-d.x);
+			dy0 = (d.y) * dx;
+			dy1 = (d.y + 1) * dx;
 
-			vw0 = qw0(-d.y);
-			vw1 = qw1(-d.y);
-			vw2 = qw2(-d.y);
+			uw0 = 1.0 + d.x;
+			uw1 = -d.x;
 
-			float w00 = uw0 * vw0;
-			float w10 = uw1 * vw0;
-			float w20 = uw2 * vw0;
+			vw0 = 1.0 + d.y;
+			vw1 = -d.y;
 
-			float w01 = uw0 * vw1;
-			float w11 = uw1 * vw1;
-			float w21 = uw2 * vw1;
+			w00 = uw0 * vw0;
+			w10 = uw1 * vw0;
 
-			float w02 = uw0 * vw2;
-			float w12 = uw1 * vw2;
-			float w22 = uw2 * vw2;
+			w01 = uw0 * vw1;
+			w11 = uw1 * vw1;
 
 			mat2 F_T = transpose(F);
 			mat2 b = F * F_T;
@@ -257,59 +211,39 @@ void main()
 
 			vec2 ax0 = affine[0] * dx0;
 			vec2 ax1 = affine[0] * dx1;
-			vec2 ax2 = affine[0] * dx2;
 
 			vec2 ay0 = affine[1] * dy0;
 			vec2 ay1 = affine[1] * dy1;
-			vec2 ay2 = affine[1] * dy2;
 
 			vec2 vm00 = w00 * (vm + ax0 + ay0);
 			vec2 vm10 = w10 * (vm + ax1 + ay0);
-			vec2 vm20 = w20 * (vm + ax2 + ay0);	
-			
+
 			vec2 vm01 = w01 * (vm + ax0 + ay1);
 			vec2 vm11 = w11 * (vm + ax1 + ay1);
-			vec2 vm21 = w21 * (vm + ax2 + ay1);	
-			
-			vec2 vm02 = w02 * (vm + ax0 + ay2);
-			vec2 vm12 = w12 * (vm + ax1 + ay2);
-			vec2 vm22 = w22 * (vm + ax2 + ay2);
 
-			atomicAdd(shVWGrid[gridSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0)].x, vm00.x);
-			atomicAdd(shVWGrid[gridSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0)].y, vm00.y);
-			atomicAdd(shVWGrid[gridSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 0)].x, vm10.x);
-			atomicAdd(shVWGrid[gridSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 0)].y, vm10.y);
-			atomicAdd(shVWGrid[gridSubblockBlockIndex(coordsInBlock.x + 2, coordsInBlock.y + 0)].x, vm20.x);
-			atomicAdd(shVWGrid[gridSubblockBlockIndex(coordsInBlock.x + 2, coordsInBlock.y + 0)].y, vm20.y);
+			i00 = subblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0);
+			i10 = subblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 0);
+			i01 = subblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 1);
+			i11 = subblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 1);
 
-			atomicAdd(shVWGrid[gridSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 1)].x, vm01.x);
-			atomicAdd(shVWGrid[gridSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 1)].y, vm01.y);
-			atomicAdd(shVWGrid[gridSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 1)].x, vm11.x);
-			atomicAdd(shVWGrid[gridSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 1)].y, vm11.y);
-			atomicAdd(shVWGrid[gridSubblockBlockIndex(coordsInBlock.x + 2, coordsInBlock.y + 1)].x, vm21.x);
-			atomicAdd(shVWGrid[gridSubblockBlockIndex(coordsInBlock.x + 2, coordsInBlock.y + 1)].y, vm21.y);
+			atomicAdd(shVWQuad[i00].x, vm00.x);
+			atomicAdd(shVWQuad[i00].y, vm00.y);
+			atomicAdd(shVWQuad[i10].x, vm10.x);
+			atomicAdd(shVWQuad[i10].y, vm10.y);
 
-			atomicAdd(shVWGrid[gridSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 2)].x, vm02.x);
-			atomicAdd(shVWGrid[gridSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 2)].y, vm02.y);
-			atomicAdd(shVWGrid[gridSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 2)].x, vm12.x);
-			atomicAdd(shVWGrid[gridSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 2)].y, vm12.y);
-			atomicAdd(shVWGrid[gridSubblockBlockIndex(coordsInBlock.x + 2, coordsInBlock.y + 2)].x, vm22.x);
-			atomicAdd(shVWGrid[gridSubblockBlockIndex(coordsInBlock.x + 2, coordsInBlock.y + 2)].y, vm22.y);
+			atomicAdd(shVWQuad[i01].x, vm01.x);
+			atomicAdd(shVWQuad[i01].y, vm01.y);
+			atomicAdd(shVWQuad[i11].x, vm11.x);
+			atomicAdd(shVWQuad[i11].y, vm11.y);
 
 
-			atomicAdd(shMGrid[gridSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0)], mass * w00);
-			atomicAdd(shMGrid[gridSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 0)], mass * w10);
-			atomicAdd(shMGrid[gridSubblockBlockIndex(coordsInBlock.x + 2, coordsInBlock.y + 0)], mass * w20);
+			atomicAdd(shMQuad[i00], mass * w00);
+			atomicAdd(shMQuad[i10], mass * w10);
 
-			atomicAdd(shMGrid[gridSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 1)], mass * w01);
-			atomicAdd(shMGrid[gridSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 1)], mass * w11);
-			atomicAdd(shMGrid[gridSubblockBlockIndex(coordsInBlock.x + 2, coordsInBlock.y + 1)], mass * w21);
+			atomicAdd(shMQuad[i01], mass * w01);
+			atomicAdd(shMQuad[i11], mass * w11);
 
-			atomicAdd(shMGrid[gridSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 2)], mass * w02);
-			atomicAdd(shMGrid[gridSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 2)], mass * w12);
-			atomicAdd(shMGrid[gridSubblockBlockIndex(coordsInBlock.x + 2, coordsInBlock.y + 2)], mass * w22);
-
-			uvec2 blockCoords = uvec2(cellPosition - 1.5) >> LOG2_G;
+			uvec2 blockCoords = toBlockCoords(cellPosition);
 			uint bIndex = atomicAdd(histogram[blockIndex(blockCoords.x, blockCoords.y)], 1);
 			bins[binIndex].blockParticleIndex[pIndex] = bIndex;
 		}
@@ -317,8 +251,11 @@ void main()
 
 	barrier();
 
-	atomicAdd(vWGrid[gridSubblockCellIndex].x, shVWGrid[localSubblockIndex].x);
-	atomicAdd(vWGrid[gridSubblockCellIndex].y, shVWGrid[localSubblockIndex].y);
-	atomicAdd(mGrid[gridSubblockCellIndex], shMGrid[localSubblockIndex]);
-
+	if (subblockCellX > 0 && subblockCellX < PADDED_S_DIMS - 1 &&
+		subblockCellY > 0 && subblockCellY < PADDED_S_DIMS - 1)
+	{
+		atomicAdd(vWQuad[quadratureSubblockCellIndex].x, shVWQuad[localSubblockIndex].x);
+		atomicAdd(vWQuad[quadratureSubblockCellIndex].y, shVWQuad[localSubblockIndex].y);
+		atomicAdd(mQuad[quadratureSubblockCellIndex], shMQuad[localSubblockIndex]);
+	}
 }

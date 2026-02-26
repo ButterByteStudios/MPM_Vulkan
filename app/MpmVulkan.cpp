@@ -304,6 +304,18 @@ private:
 	std::vector<val::AllocatedBuffer> cameraBuffers;
 
 	uint32_t dimensions = 1 << 7;
+
+	//uint32_t quadDimensions = 1 << 7;
+	//uint32_t quadCount = quadDimensions * quadDimensions;
+	//uint32_t quadBlockDimensions = quadDimensions >> 2;
+	//uint32_t quadBlockCount = quadBlockDimensions * quadBlockDimensions;
+	//uint32_t particleBlockDimensions = quadBlockDimensions - 1;
+	//uint32_t particleBlockCount = particleBlockDimensions * particleBlockDimensions;
+	//uint32_t paddedParticleBlockDimensions = particleBlockDimensions + 1;
+	//uint32_t paddedParticleBlockCount = paddedParticleBlockDimensions * paddedParticleBlockDimensions;
+	//uint32_t nodeDimensions = quadBlockDimensions + 1;
+	//uint32_t nodeCount = nodeDimensions * nodeDimensions;
+
 	uint32_t gridBlockDimensions = dimensions >> 2;
 	uint32_t particleBlockDimensions = gridBlockDimensions - 1;
 	uint32_t paddedParticleBlockDimensions = gridBlockDimensions;
@@ -319,7 +331,7 @@ private:
 	float scrollSensitivity = 0.05f;
 
 	float E = 100000;
-	float v = 0.45f;
+	float v = 0.40f;
 	float rho = 2000;
 	float dx = 1.0f / dimensions;
 	float dt = 0.0002f;
