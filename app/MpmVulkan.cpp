@@ -316,7 +316,7 @@ private:
 	uint32_t particleBlockCount = particleBlockDimensions * particleBlockDimensions;
 	uint32_t paddedParticleBlockDimensions = particleBlockDimensions + 1;
 	uint32_t paddedParticleBlockCount = paddedParticleBlockDimensions * paddedParticleBlockDimensions;
-	uint32_t nodeDimensions = quadBlockDimensions + 1;
+	uint32_t nodeDimensions = quadDimensions + 1;
 	uint32_t nodeCount = nodeDimensions * nodeDimensions;
 
 	//uint32_t gridBlockDimensions = quadDimensions >> 2;
@@ -1871,7 +1871,7 @@ private:
 
 			glm::vec2 cellPos = glm::vec2(x, y);
 			glm::vec2 pos = cellPos * dx;
-			glm::ivec2 coords = glm::ivec2(glm::floor(cellPos - 1.5f));
+			glm::ivec2 coords = glm::ivec2(cellPos - 2.5f);
 			glm::ivec2 blockCoords = coords >> 2;
 			uint32_t blockIndex = blockCoords.x + blockCoords.y * particleBlockDimensions;
 

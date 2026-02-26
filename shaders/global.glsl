@@ -53,7 +53,7 @@ layout(set = 1, binding = BIND_UBO) uniform ParameterUBO
 
 uvec2 toBlockCoords(vec2 cellPosition)
 {
-	return uvec2(cellPosition - 2.0) >> 2u;
+	return uvec2(cellPosition - 2.5) >> 2u;
 }
 
 uint blockIndex(uint x, uint y)

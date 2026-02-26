@@ -58,7 +58,7 @@ layout(set = 0, std430, binding = BIND_BR) buffer BinSSBOInOut
 
 uint subblockIndex(uint x, uint y)
 {
-	return x * S_DIMS + y;
+	return x + y * S_DIMS;
 }
 
 layout(local_size_x = BIN_SIZE, local_size_y = 1, local_size_z = 1) in;
@@ -83,7 +83,7 @@ void main()
 	float dx = ubo.dx;
 	float invDx = ubo.invDx;
 	float dt = ubo.dt;
-	uint dimensions = ubo.quadDimensions;
+	uint dimensions = ubo.nodeDimensions;
 	float k = ubo.k;
 	float mu = ubo.mu;
 	float rho = ubo.rho;
@@ -101,14 +101,16 @@ void main()
 	}
 	uint baseBin = blockBinOffsets[block];
 
-	uint subblockCellX = pIndex >> 3u; // divide by 8
-	uint subblockCellY = pIndex & 7u;
+	uint subblockCellX = pIndex & 7u; // Modulo 8
+	uint subblockCellY = pIndex >> 3u; // divide by 8
 
 	uint quadratureSubblockCellIndex = morton(quadratureBlockCellCoords.x + subblockCellX, quadratureBlockCellCoords.y + subblockCellY);
 	uint localSubblockIndex = subblockIndex(subblockCellX - 1, subblockCellY - 1);
-
-	if (subblockCellX > 0 && subblockCellX < PADDED_S_DIMS - 1 &&
-		subblockCellY > 0 && subblockCellY < PADDED_S_DIMS - 1)
+	
+	// overflows if too small, fails check if too large
+	bool inside  = ((subblockCellX - 1u) < 6u) && ((subblockCellY - 1u) < 6u);
+	bool atomicless = ((subblockCellX - 3u) < 2u) && ((subblockCellY - 3u) < 2u);
+	if (inside)
 	{
 		shVRQuad[localSubblockIndex] = vRQuad[quadratureSubblockCellIndex];
 		shVWQuad[localSubblockIndex] = vec2(0);
@@ -127,10 +129,10 @@ void main()
 		{
 			vec2 position = bins[binIndex].position[pIndex];
 			vec2 cellPosition = position * invDx;
-			uvec2 coords = uvec2(cellPosition);
+			uvec2 coords = uvec2(cellPosition - 0.5);
 			uvec2 coordsInBlock = coords - quadratureBlockCellCoords - 1;
 			
-			vec2 d = coords - cellPosition;
+			vec2 d = coords - cellPosition + 0.5;
 
 			float dx0 = (d.x) * dx;
 			float dx1 = (d.x + 1) * dx;
@@ -182,10 +184,10 @@ void main()
 			bins[binIndex].position[pIndex] = position;
 
 			cellPosition = position * invDx;
-			coords = ivec2(cellPosition);
+			coords = ivec2(cellPosition - 0.5);
 			coordsInBlock = coords - quadratureBlockCellCoords - 1;
 
-			d = coords - cellPosition;
+			d = coords - cellPosition + 0.5;
 
 			dx0 = (d.x) * dx;
 			dx1 = (d.x + 1) * dx;
@@ -265,11 +267,19 @@ void main()
 
 	barrier();
 
-	if (subblockCellX > 0 && subblockCellX < PADDED_S_DIMS - 1 &&
-		subblockCellY > 0 && subblockCellY < PADDED_S_DIMS - 1)
+	if (inside)
 	{
-		atomicAdd(vWQuad[quadratureSubblockCellIndex].x, shVWQuad[localSubblockIndex].x);
-		atomicAdd(vWQuad[quadratureSubblockCellIndex].y, shVWQuad[localSubblockIndex].y);
-		atomicAdd(mQuad[quadratureSubblockCellIndex], shMQuad[localSubblockIndex]);
+		if (atomicless)
+		{
+			vWQuad[quadratureSubblockCellIndex].x = shVWQuad[localSubblockIndex].x;
+			vWQuad[quadratureSubblockCellIndex].y = shVWQuad[localSubblockIndex].y;
+			mQuad[quadratureSubblockCellIndex] = shMQuad[localSubblockIndex];
+		}
+		else
+		{
+			atomicAdd(vWQuad[quadratureSubblockCellIndex].x, shVWQuad[localSubblockIndex].x);
+			atomicAdd(vWQuad[quadratureSubblockCellIndex].y, shVWQuad[localSubblockIndex].y);
+			atomicAdd(mQuad[quadratureSubblockCellIndex], shMQuad[localSubblockIndex]);
+		}
 	}
 }
