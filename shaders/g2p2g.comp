@@ -4,12 +4,12 @@
 #extension GL_ARB_shading_language_include: enable
 #include "global.glsl"
 
-layout(set = 0, std430, binding = BIND_VR) readonly buffer QuadVelocitySSBOIn
+layout(set = 0, std430, binding = BIND_VQR) readonly buffer QuadVelocitySSBOIn
 {
 	vec2 vRQuad[];
 };
 
-layout(set = 0, std430, binding = BIND_VW) writeonly buffer QuadVelocitySSBOOut
+layout(set = 0, std430, binding = BIND_VQW) writeonly buffer QuadVelocitySSBOOut
 {
 	vec2 vWQuad[];
 };
@@ -17,6 +17,16 @@ layout(set = 0, std430, binding = BIND_VW) writeonly buffer QuadVelocitySSBOOut
 layout(set = 0, std430, binding = BIND_M) writeonly buffer QuadMassSSBOOut
 {
 	float mQuad[];
+};
+
+layout(set = 0, std430, binding = BIND_GQR) readonly buffer QuadGradientSSBOIn
+{
+	mat2 GRQuad[];
+};
+
+layout(set = 0, std430, binding = BIND_GQW) writeonly buffer QuadGradientSSBOOut
+{
+	mat2 GWQuad[];
 };
 
 layout(set = 0, std430, binding = BIND_H) writeonly buffer BlockHistogramSSBOOut
@@ -64,6 +74,8 @@ layout(local_size_x = BIN_SIZE, local_size_y = 1, local_size_z = 1) in;
 
 shared vec2 shVRQuad[S_BLOCK];
 shared vec2 shVWQuad[S_BLOCK];
+shared mat2 shGRQuad[S_BLOCK];
+shared mat2 shGWQuad[S_BLOCK];
 shared float shMQuad[S_BLOCK];
 
 void main()
@@ -71,7 +83,7 @@ void main()
 	float dx = ubo.dx;
 	float invDx = ubo.invDx;
 	float dt = ubo.dt;
-	uint dimensions = ubo.dimensions;
+	uint dimensions = ubo.quadDimensions;
 	float k = ubo.k;
 	float mu = ubo.mu;
 	float rho = ubo.rho;
@@ -100,6 +112,8 @@ void main()
 	{
 		shVRQuad[localSubblockIndex] = vRQuad[quadratureSubblockCellIndex];
 		shVWQuad[localSubblockIndex] = vec2(0);
+		shGRQuad[localSubblockIndex] = GRQuad[quadratureSubblockCellIndex];
+		shGWQuad[localSubblockIndex] = mat2(0);
 		shMQuad[localSubblockIndex] = 0;
 	}
 

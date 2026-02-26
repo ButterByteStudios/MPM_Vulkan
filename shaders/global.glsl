@@ -1,5 +1,5 @@
-#define BIND_VR (0)
-#define BIND_VW (1)
+#define BIND_VQR (0)
+#define BIND_VQW (1)
 #define BIND_M (2)
 #define BIND_H (3)
 #define BIND_BC (4)
@@ -8,6 +8,9 @@
 #define BIND_BR (7)
 #define BIND_BW (8)
 #define BIND_SID (9)
+#define BIND_GQR (10)
+#define BIND_GQW (11)
+#define BIND_VN (12)
 
 #define BIND_UBO (0)
 #define BIND_G (1)
@@ -41,7 +44,8 @@ layout(set = 1, binding = BIND_UBO) uniform ParameterUBO
 	float rho;
 	float dx;
 	float invDx;
-	uint dimensions;
+	uint quadDimensions;
+	uint nodeDimensions;
 	uint blockDimensions;
 	float dt;
 	float invDt;

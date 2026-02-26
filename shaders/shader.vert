@@ -8,7 +8,8 @@ layout(binding = 0) uniform ParameterUBO
 	float rho;
 	float dx;
 	float invDx;
-	uint dimensions;
+	uint quadDimensions;
+	uint nodeDimensions;
 	uint blockDimensions;
 	float dt;
 	float invDt;
@@ -31,7 +32,7 @@ void main()
 	gl_PointSize = 1.0;
 	
 	// Map the position from 0 - dimensions to 0 - (dimensions - 2);
-	vec2 pos = (inPosition * ubo.invDx - 1) / (ubo.dimensions - 2) * 2.0 - 1.0;
+	vec2 pos = (inPosition * ubo.invDx - 1) / (ubo.quadDimensions - 2) * 2.0 - 1.0;
 	vec2 camPos = vec2(cam.pos.x, -cam.pos.y);
 	vec2 offset = pos - camPos;
 	vec2 scaled = offset * cam.zoom;

@@ -3,12 +3,12 @@
 #extension GL_ARB_shading_language_include: enable
 #include "global.glsl"
 
-layout(set = 0, std430, binding = BIND_VR) writeonly buffer GridVelocitySSBOClear
+layout(set = 0, std430, binding = BIND_VQR) writeonly buffer GridVelocitySSBOClear
 {
 	vec2 vClearGrid[];
 };
 
-layout(set = 0, std430, binding = BIND_VW) buffer GridVelocitySSBONormalize
+layout(set = 0, std430, binding = BIND_VQW) buffer GridVelocitySSBONormalize
 {
 	vec2 vGrid[];
 };
@@ -36,9 +36,9 @@ void main()
 
 	// 3 outer node halos are boundaries so particles stay in particle block territory
 	bool left = x <= 4;
-	bool right = x >= ubo.dimensions - 4;
+	bool right = x >= ubo.quadDimensions - 4;
 	bool down = y <= 4;
-	bool up = y >= ubo.dimensions - 4;
+	bool up = y >= ubo.quadDimensions - 4;
 
 	vec2 acceleration = vec2(0, -9.81 * ubo.dt) + ubo.speed * ubo.dt;
 
