@@ -56,9 +56,19 @@ uvec2 toBlockCoords(vec2 cellPosition)
 	return uvec2(cellPosition - 2.5) >> 2u;
 }
 
+uint nodeIndex(uint x, uint y)
+{
+	return x + y * ubo.nodeDimensions;
+}
+
 uint blockIndex(uint x, uint y)
 {
 	return x + y * ubo.blockDimensions;
+}
+
+uint quadIndex(uint x, uint y)
+{
+	return x + y * ubo.quadDimensions;
 }
 
 uint part1by1(uint x)
@@ -70,12 +80,12 @@ uint part1by1(uint x)
 	return x;
 }
 
-uint morton(uint x, uint y)
+uint morgton(uint x, uint y)
 {
 	return (part1by1(x) << 1) | part1by1(y);
 }
 
-uint partialMortonn(uint x, uint y)
+uint partialMorton(uint x, uint y)
 {
 	uint perserve = (((x & 0x3) << 2) | (y & 0x3));
 	

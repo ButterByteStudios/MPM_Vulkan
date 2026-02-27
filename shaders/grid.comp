@@ -25,7 +25,7 @@ void main()
     uint x = gl_GlobalInvocationID.x;
     uint y = gl_GlobalInvocationID.y;
     
-    uint i = morton(x, y);
+    uint i = quadIndex(x, y);
 
 	vec2 v = vGrid[i];
 	float m = mGrid[i];

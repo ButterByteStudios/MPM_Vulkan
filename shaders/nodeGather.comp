@@ -1,0 +1,86 @@
+#version 450
+
+#extension GL_ARB_shading_language_include: enable
+#include "global.glsl"
+
+layout(set = 0, std430, binding = BIND_VN) writeonly buffer NodeVelocitySSBOOut
+{
+    vec2 vNode[];
+};
+
+layout(set = 0, std430, binding = BIND_M) readonly buffer QuadMassSSBOIn
+{
+    float mQuad[];
+};
+
+layout(set = 0, std430, binding = BIND_VQW) readonly buffer QuadVelocitySSBOIn
+{
+    // v_c * m_c
+    vec2 vQuad[];
+};
+
+layout(set = 0, std430, binding = BIND_GQW) readonly buffer QuadGradientSSBOIn
+{
+    // G_c * m_c
+    mat2 GQuad[];
+};
+
+layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
+
+void main()
+{
+    uint x = gl_GlobalInvocationID.x;
+    uint y = gl_GlobalInvocationID.y;
+
+    if (x >= ubo.nodeDimensions || y >= ubo.nodeDimensions)
+    {
+        return;
+    }
+
+    const float w = 1.0 / 4.0;
+    float dx = ubo.dx;
+
+    // Check for matrix misalignment (eg d10 means x0 y1 instead of x1 y0)
+    vec2 d00 = vec2(0.5, 0.5) * dx;
+    vec2 d10 = vec2(-0.5, 0.5) * dx;
+    vec2 d01 = vec2(0.5, -0.5) * dx;
+    vec2 d11 = vec2(-0.5, -0.5) * dx;
+
+    uint i = nodeIndex(x, y);
+    uint i00 = quadIndex(x - 1, y - 1);
+    uint i10 = quadIndex(x, y - 1);
+    uint i01 = quadIndex(x - 1, y);
+    uint i11 = quadIndex(x, y);
+
+    // Same under-overflow check as g2p2g. Checks if the index is within a 1 node halo of the dimensions
+    const uint boundary = 4;
+    bool inBounds = ((x - 4) < (ubo.nodeDimensions - 4)) && ((y - 4) < (ubo.nodeDimensions - 4));
+    if (!inBounds)
+    {
+        vNode[i] = vec2(0);
+        return;
+    }
+
+    float m00 = mQuad[i00];
+    float m10 = mQuad[i10];
+    float m01 = mQuad[i01];
+    float m11 = mQuad[i11];
+    float m = (m00 + m10 + m01 + m11) * w;
+
+    if (m == 0)
+    {
+        vNode[i] = vec2(0);
+        return;
+    }
+
+    vec2 addVel = vec2(0, -9.81 * ubo.dt) + ubo.speed * ubo.dt;
+
+    vec2 v00 = vQuad[i00] + GQuad[i00] * d00;
+    vec2 v10 = vQuad[i10] + GQuad[i10] * d10;
+    vec2 v01 = vQuad[i01] + GQuad[i01] * d01;
+    vec2 v11 = vQuad[i11] + GQuad[i11] * d11;
+    vec2 v = (v00 + v10 + v01 + v11) * w;
+
+    float cflSpeed = dx / ubo.dt;
+    vNode[i] = clamp((v / m) + addVel, -cflSpeed, cflSpeed);
+}

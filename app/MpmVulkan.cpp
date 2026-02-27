@@ -250,14 +250,16 @@ private:
 	VkPipelineLayout computePipelineLayout;
 
 	VkPipeline g2p2gComputePipeline;
-	VkPipeline processhistogramComputePipeline;
-	VkPipeline localsumComputePipeline;
-	VkPipeline partialglobalsumComputePipeline;
-	VkPipeline globalsumComputePipeline;
+	VkPipeline processHistogramComputePipeline;
+	VkPipeline localSumComputePipeline;
+	VkPipeline partialGlobalSumComputePipeline;
+	VkPipeline globalSumComputePipeline;
 	VkPipeline scatterComputePipeline;
-	VkPipeline totalextractionComputePipeline;
-	VkPipeline clearhistogramComputePipeline;
-	VkPipeline graphicsscatterComputePipeline;
+	VkPipeline totalExtractionComputePipeline;
+	VkPipeline clearHistogramComputePipeline;
+	VkPipeline graphicsScatterComputePipeline;
+	VkPipeline nodeGatherComputePipeline;
+	VkPipeline quadratureGatherComputePipeline;
 	VkPipeline gridComputePipeline;
 
 	VkSwapchainKHR swapChain;
@@ -1302,7 +1304,7 @@ private:
 			binding = 12;
 			descriptorInfos[binding].buffer = vNodeBuffer.buffer;
 			descriptorInfos[binding].offset = 0;
-			descriptorInfos[binding].range = sizeof(float) * nodeCount;
+			descriptorInfos[binding].range = sizeof(glm::vec2) * nodeCount;
 
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			descriptorWrites[binding].dstSet = substepDescriptorSets[i];
@@ -1373,29 +1375,20 @@ private:
 
 	void createComputePipelines()
 	{
-		auto g2p2gCode = readFile("../shaders/g2p2g.comp.spv");
-		auto processhistogramCode = readFile("../shaders/processhistogram.comp.spv");
-		auto localsumCode = readFile("../shaders/localsum.comp.spv");
-		auto partialglobalsumCode = readFile("../shaders/partialglobalsum.comp.spv");
-		auto globalsumCode = readFile("../shaders/globalsum.comp.spv");
-		auto scatterCode = readFile("../shaders/scatter.comp.spv");
-		auto totalextractionCode = readFile("../shaders/totalextraction.comp.spv");
-		auto clearhistogramCode = readFile("../shaders/clearhistogram.comp.spv");
-		auto graphicsscatterCode = readFile("../shaders/graphicsscatter.comp.spv");
-		auto gridCode = readFile("../shaders/grid.comp.spv");
-
 		std::vector<VkShaderModule> shaderModules =
 		{
-			createShaderModule(g2p2gCode),
-			createShaderModule(processhistogramCode),
-			createShaderModule(localsumCode),
-			createShaderModule(partialglobalsumCode),
-			createShaderModule(globalsumCode),
-			createShaderModule(scatterCode),
-			createShaderModule(totalextractionCode),
-			createShaderModule(clearhistogramCode),
-			createShaderModule(graphicsscatterCode),
-			createShaderModule(gridCode)
+			createShaderModule(readFile("../shaders/g2p2g.comp.spv")),
+			createShaderModule(readFile("../shaders/processHistogram.comp.spv")),
+			createShaderModule(readFile("../shaders/localSum.comp.spv")),
+			createShaderModule(readFile("../shaders/partialGlobalSum.comp.spv")),
+			createShaderModule(readFile("../shaders/globalSum.comp.spv")),
+			createShaderModule(readFile("../shaders/scatter.comp.spv")),
+			createShaderModule(readFile("../shaders/totalExtraction.comp.spv")),
+			createShaderModule(readFile("../shaders/clearHistogram.comp.spv")),
+			createShaderModule(readFile("../shaders/graphicsScatter.comp.spv")),
+			createShaderModule(readFile("../shaders/nodeGather.comp.spv")),
+			createShaderModule(readFile("../shaders/quadratureGather.comp.spv")),
+			createShaderModule(readFile("../shaders/grid.comp.spv"))
 		};
 
 		std::vector<VkPipelineShaderStageCreateInfo> stageInfos{};
@@ -1446,15 +1439,17 @@ private:
 		}
 
 		g2p2gComputePipeline = pipelines[0];
-		processhistogramComputePipeline = pipelines[1];
-		localsumComputePipeline = pipelines[2];
-		partialglobalsumComputePipeline = pipelines[3];
-		globalsumComputePipeline = pipelines[4];
+		processHistogramComputePipeline = pipelines[1];
+		localSumComputePipeline = pipelines[2];
+		partialGlobalSumComputePipeline = pipelines[3];
+		globalSumComputePipeline = pipelines[4];
 		scatterComputePipeline = pipelines[5];
-		totalextractionComputePipeline = pipelines[6];
-		clearhistogramComputePipeline = pipelines[7];
-		graphicsscatterComputePipeline = pipelines[8];
-		gridComputePipeline = pipelines[9];
+		totalExtractionComputePipeline = pipelines[6];
+		clearHistogramComputePipeline = pipelines[7];
+		graphicsScatterComputePipeline = pipelines[8];
+		nodeGatherComputePipeline = pipelines[9];
+		quadratureGatherComputePipeline = pipelines[10];
+		gridComputePipeline = pipelines[11];
 
 		for (VkShaderModule& module : shaderModules)
 		{
@@ -1640,7 +1635,7 @@ private:
 				0, nullptr
 			);
 
-			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, processhistogramComputePipeline);
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, processHistogramComputePipeline);
 			vkCmdDispatch(commandBuffer, paddedParticleBlockDimensions / BLOCK_KERNEL_SIZE, paddedParticleBlockDimensions / BLOCK_KERNEL_SIZE, 1);
 
 			vkCmdPipelineBarrier(commandBuffer,
@@ -1653,7 +1648,7 @@ private:
 			);
 
 			// Look into https://research.nvidia.com/publication/2016-03_single-pass-parallel-prefix-scan-decoupled-look-back
-			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, localsumComputePipeline);
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, localSumComputePipeline);
 			vkCmdDispatch(commandBuffer, paddedParticleBlockCount / SUM_KERNEL_SIZE, 1, 1);
 
 			vkCmdPipelineBarrier(commandBuffer,
@@ -1665,7 +1660,7 @@ private:
 				0, nullptr
 			);
 
-			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, partialglobalsumComputePipeline);
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, partialGlobalSumComputePipeline);
 			vkCmdDispatch(commandBuffer, 1, 1, 1);
 
 			vkCmdPipelineBarrier(commandBuffer,
@@ -1677,7 +1672,7 @@ private:
 				0, nullptr
 			);
 
-			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, globalsumComputePipeline);
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, globalSumComputePipeline);
 			vkCmdDispatch(commandBuffer, paddedParticleBlockCount / SUM_KERNEL_SIZE, 1, 1);
 
 			vkCmdPipelineBarrier(commandBuffer,
@@ -1702,7 +1697,7 @@ private:
 				0, nullptr
 			);
 
-			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, totalextractionComputePipeline);
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, totalExtractionComputePipeline);
 			vkCmdDispatch(commandBuffer, 1, 1, 1);
 
 			vkCmdPipelineBarrier(commandBuffer,
@@ -1714,7 +1709,7 @@ private:
 				0, nullptr
 			);
 
-			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, clearhistogramComputePipeline);
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, clearHistogramComputePipeline);
 			vkCmdDispatch(commandBuffer, paddedParticleBlockCount / (BLOCK_KERNEL_SIZE * BLOCK_KERNEL_SIZE), 1, 1);
 
 			vkCmdPipelineBarrier(commandBuffer,
@@ -1727,7 +1722,23 @@ private:
 			);
 
 			// Theres no dependency between particle reordering and grid so change the positioning
-			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, gridComputePipeline);
+			//vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, gridComputePipeline);
+			//vkCmdDispatch(commandBuffer, quadDimensions / GRID_KERNEL_SIZE, quadDimensions / GRID_KERNEL_SIZE, 1);
+			//
+
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, nodeGatherComputePipeline);
+			vkCmdDispatch(commandBuffer, ceilIntDivision(nodeDimensions, GRID_KERNEL_SIZE), ceilIntDivision(nodeDimensions, GRID_KERNEL_SIZE), 1);
+
+			vkCmdPipelineBarrier(commandBuffer,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				0,
+				1, &computeToComputeBarrier,
+				0, nullptr,
+				0, nullptr
+			);
+
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, quadratureGatherComputePipeline);
 			vkCmdDispatch(commandBuffer, quadDimensions / GRID_KERNEL_SIZE, quadDimensions / GRID_KERNEL_SIZE, 1);
 
 			vkCmdPipelineBarrier(commandBuffer,
@@ -1742,7 +1753,7 @@ private:
 			currentCompute = (currentCompute + 1) % 2;
 		}
 
-		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, graphicsscatterComputePipeline);
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, graphicsScatterComputePipeline);
 		vkCmdDispatchIndirect(commandBuffer, scatterIndirectDispatchBuffer.buffer, 0);
 
 		if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS)
@@ -2055,8 +2066,8 @@ private:
 		//
 		
 		// v Node buffer
-		std::vector<float> vN(nodeCount);
-		bufferSize = sizeof(float) * nodeCount;
+		std::vector<glm::vec2> vN(nodeCount);
+		bufferSize = sizeof(glm::vec2) * nodeCount;
 
 		vNodeBuffer = bufferAllocator.create({
 			bufferSize,
@@ -2469,14 +2480,16 @@ private:
 		vkDestroyPipelineLayout(device, graphicsPipelineLayout, nullptr);
 
 		vkDestroyPipeline(device, g2p2gComputePipeline, nullptr);
-		vkDestroyPipeline(device, processhistogramComputePipeline, nullptr);
-		vkDestroyPipeline(device, localsumComputePipeline, nullptr);
-		vkDestroyPipeline(device, partialglobalsumComputePipeline, nullptr);
-		vkDestroyPipeline(device, globalsumComputePipeline, nullptr);
-		vkDestroyPipeline(device, totalextractionComputePipeline, nullptr);
+		vkDestroyPipeline(device, processHistogramComputePipeline, nullptr);
+		vkDestroyPipeline(device, localSumComputePipeline, nullptr);
+		vkDestroyPipeline(device, partialGlobalSumComputePipeline, nullptr);
+		vkDestroyPipeline(device, globalSumComputePipeline, nullptr);
+		vkDestroyPipeline(device, totalExtractionComputePipeline, nullptr);
 		vkDestroyPipeline(device, scatterComputePipeline, nullptr);
-		vkDestroyPipeline(device, clearhistogramComputePipeline, nullptr);
-		vkDestroyPipeline(device, graphicsscatterComputePipeline, nullptr);
+		vkDestroyPipeline(device, clearHistogramComputePipeline, nullptr);
+		vkDestroyPipeline(device, graphicsScatterComputePipeline, nullptr);
+		vkDestroyPipeline(device, nodeGatherComputePipeline, nullptr);
+		vkDestroyPipeline(device, quadratureGatherComputePipeline, nullptr);
 		vkDestroyPipeline(device, gridComputePipeline, nullptr);
 		vkDestroyPipelineLayout(device, computePipelineLayout, nullptr);
 
