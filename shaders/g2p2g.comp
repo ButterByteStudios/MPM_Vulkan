@@ -104,12 +104,12 @@ void main()
 	uint subblockCellX = pIndex & 7u; // Modulo 8
 	uint subblockCellY = pIndex >> 3u; // divide by 8
 
-	uint quadratureSubblockCellIndex = quadIndex(quadratureBlockCellCoords.x + subblockCellX, quadratureBlockCellCoords.y + subblockCellY);
+	uint quadratureSubblockCellIndex = morton(quadratureBlockCellCoords.x + subblockCellX, quadratureBlockCellCoords.y + subblockCellY);
 	uint localSubblockIndex = subblockIndex(subblockCellX - 1, subblockCellY - 1);
 	
 	// overflows if too small, fails check if too large
-	bool inside  = ((subblockCellX - 1u) < 6u) && ((subblockCellY - 1u) < 6u);
-	bool atomicless = ((subblockCellX - 3u) < 2u) && ((subblockCellY - 3u) < 2u);
+	bool inside  = ((subblockCellX - 1u) < (PADDED_S_DIMS - 2u)) && ((subblockCellY - 1u) < (PADDED_S_DIMS - 2u));
+	bool atomicless = ((subblockCellX - 3u) < (PADDED_S_DIMS - 6u)) && ((subblockCellY - 3u) < (PADDED_S_DIMS - 6u));
 	if (inside)
 	{
 		shVRQuad[localSubblockIndex] = vRQuad[quadratureSubblockCellIndex];
@@ -170,6 +170,10 @@ void main()
 			mat2 G11 = w11 * shGRQuad[i11];
 			mat2 G = G00 + G10 + G01 + G11;
 
+			mat2 B = mat2(0);
+			B[0] = v * dx0 + (v10 + v11) * dx;
+			B[1] = v * dy0 + dx * (v01 + v11);
+
 			float inv_D = 4.0 * invDx * invDx;
 
 			mat2 F = (mat2(1.0) + G * dt) * bins[binIndex].F[pIndex];
@@ -221,7 +225,7 @@ void main()
 			float volume = mass / rho;
 			float currentVolume = volume * J;
 			
-			mat2 stress = dt * -volume * cauchy * inv_D;
+			mat2 stress = dt * -currentVolume * cauchy * inv_D;
 			mat2 weighedG = G * mass;
 			mat2 affine = stress + weighedG;
 

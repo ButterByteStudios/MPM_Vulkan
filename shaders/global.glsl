@@ -66,11 +66,6 @@ uint blockIndex(uint x, uint y)
 	return x + y * ubo.blockDimensions;
 }
 
-uint quadIndex(uint x, uint y)
-{
-	return x + y * ubo.quadDimensions;
-}
-
 uint part1by1(uint x)
 {
 	x = (x | (x << 8)) & 0x00FF00FF;
@@ -80,7 +75,7 @@ uint part1by1(uint x)
 	return x;
 }
 
-uint morgton(uint x, uint y)
+uint morton(uint x, uint y)
 {
 	return (part1by1(x) << 1) | part1by1(y);
 }

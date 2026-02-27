@@ -47,14 +47,17 @@ void main()
     vec2 d11 = vec2(-0.5, -0.5) * dx;
 
     uint i = nodeIndex(x, y);
-    uint i00 = quadIndex(x - 1, y - 1);
-    uint i10 = quadIndex(x, y - 1);
-    uint i01 = quadIndex(x - 1, y);
-    uint i11 = quadIndex(x, y);
+    uint i00 = morton(x - 1, y - 1);
+    uint i10 = morton(x, y - 1);
+    uint i01 = morton(x - 1, y);
+    uint i11 = morton(x, y);
 
     // Same under-overflow check as g2p2g. Checks if the index is within a 1 node halo of the dimensions
     const uint boundary = 4;
-    bool inBounds = ((x - 4) < (ubo.nodeDimensions - 4)) && ((y - 4) < (ubo.nodeDimensions - 4));
+    const uint doubleBoundary = 2 * boundary;
+
+    bool inBounds = (x - boundary) < (ubo.nodeDimensions - doubleBoundary) &&
+                    (y - boundary) < (ubo.nodeDimensions - doubleBoundary);
     if (!inBounds)
     {
         vNode[i] = vec2(0);

@@ -48,7 +48,7 @@ void main()
     vec2 dd01 = vec2(-0.5, 0.5) * invDx;
     vec2 dd11 = vec2(0.5, 0.5) * invDx;
 
-    uint i = quadIndex(x, y);
+    uint i = morton(x, y);
     mQuadClear[i] = 0;
     vQuadClear[i] = vec2(0);
     GQuadClear[i] = mat2(0);
