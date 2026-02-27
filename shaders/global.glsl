@@ -13,6 +13,9 @@
 #define BIND_VN (12)
 #define BIND_TQ (13)
 
+#define BIND_PDEBUG (14)
+#define BIND_QDEBUG (15)
+
 #define BIND_UBO (0)
 #define BIND_G (1)
 
@@ -54,7 +57,7 @@ layout(set = 1, binding = BIND_UBO) uniform ParameterUBO
 
 uvec2 toBlockCoords(vec2 cellPosition)
 {
-	return uvec2(cellPosition - 2.5) >> 2u;
+	return uvec2(cellPosition - 2.0) >> 2u;
 }
 
 uint nodeIndex(uint x, uint y)

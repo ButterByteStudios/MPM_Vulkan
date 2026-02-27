@@ -305,6 +305,8 @@ private:
 	val::AllocatedBuffer binCountBuffer;
 	val::AllocatedBuffer binOffsetsBuffer;
 	val::AllocatedBuffer binSumBuffer;
+	val::AllocatedBuffer particleDebug;
+	val::AllocatedBuffer quadDebug;
 
 	val::AllocatedBuffer scatterIndirectDispatchBuffer;
 
@@ -1116,7 +1118,7 @@ private:
 			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1.0f }
 		};
 
-		substepComputeDescriptorAllocator.initPool(device, 2 * 14, substepSizes);
+		substepComputeDescriptorAllocator.initPool(device, 2 * 16, substepSizes);
 
 		dsl::DescriptorLayoutBuilder substepBuilder{};
 		substepBuilder.addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // VQR
@@ -1133,6 +1135,8 @@ private:
 		substepBuilder.addBinding(11, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // GQW
 		substepBuilder.addBinding(12, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // VN
 		substepBuilder.addBinding(13, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // TQ
+		substepBuilder.addBinding(14, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // PDebug
+		substepBuilder.addBinding(15, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // QDebug
 
 		substepBuilder.build(device, VK_SHADER_STAGE_COMPUTE_BIT, substepComputeDescriptorSetLayout);
 
@@ -1144,8 +1148,8 @@ private:
 		for (size_t i = 0; i < 2; i++)
 		{
 			uint32_t binding = 0;
-			std::array<VkWriteDescriptorSet, 14> descriptorWrites{};
-			std::array<VkDescriptorBufferInfo, 14> descriptorInfos{};
+			std::array<VkWriteDescriptorSet, 16> descriptorWrites{};
+			std::array<VkDescriptorBufferInfo, 16> descriptorInfos{};
 
 			binding = 0;
 			descriptorInfos[binding].buffer = vQuadBuffers[(i + 2 - 1) % 2].buffer;
@@ -1318,6 +1322,32 @@ private:
 
 			binding = 13;
 			descriptorInfos[binding].buffer = tQuadBuffer.buffer;
+			descriptorInfos[binding].offset = 0;
+			descriptorInfos[binding].range = sizeof(glm::mat2) * quadCount;
+
+			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[binding].dstSet = substepDescriptorSets[i];
+			descriptorWrites[binding].dstBinding = binding;
+			descriptorWrites[binding].dstArrayElement = 0;
+			descriptorWrites[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			descriptorWrites[binding].descriptorCount = 1;
+			descriptorWrites[binding].pBufferInfo = &descriptorInfos[binding];
+
+			binding = 14;
+			descriptorInfos[binding].buffer = particleDebug.buffer;
+			descriptorInfos[binding].offset = 0;
+			descriptorInfos[binding].range = sizeof(glm::mat2) * PARTICLE_COUNT;
+
+			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[binding].dstSet = substepDescriptorSets[i];
+			descriptorWrites[binding].dstBinding = binding;
+			descriptorWrites[binding].dstArrayElement = 0;
+			descriptorWrites[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			descriptorWrites[binding].descriptorCount = 1;
+			descriptorWrites[binding].pBufferInfo = &descriptorInfos[binding];
+
+			binding = 15;
+			descriptorInfos[binding].buffer = quadDebug.buffer;
 			descriptorInfos[binding].offset = 0;
 			descriptorInfos[binding].range = sizeof(glm::mat2) * quadCount;
 
@@ -1897,7 +1927,7 @@ private:
 
 			glm::vec2 cellPos = glm::vec2(x, y);
 			glm::vec2 pos = cellPos * dx;
-			glm::ivec2 coords = glm::ivec2(cellPos - 2.5f);
+			glm::ivec2 coords = glm::ivec2(cellPos - 2.0f);
 			glm::ivec2 blockCoords = coords >> 2;
 			uint32_t blockIndex = blockCoords.x + blockCoords.y * particleBlockDimensions;
 
@@ -2105,6 +2135,29 @@ private:
 		
 		cpuToGpuCopy(tQuadBuffer.buffer, bufferSize, tQ);
 		//
+
+		std::vector<glm::mat2> pD(PARTICLE_COUNT);
+		bufferSize = sizeof(glm::mat2) * PARTICLE_COUNT;
+
+		particleDebug = bufferAllocator.create({
+			bufferSize,
+			val::BufferUsage::Indirect,
+			val::BufferLifetime::Static
+			});
+
+		cpuToGpuCopy(particleDebug.buffer, bufferSize, pD);
+
+
+		std::vector<glm::mat2> qd(quadCount);
+		bufferSize = sizeof(glm::mat2) * quadCount;
+
+		quadDebug = bufferAllocator.create({
+			bufferSize,
+			val::BufferUsage::Indirect,
+			val::BufferLifetime::Static
+			});
+
+		cpuToGpuCopy(quadDebug.buffer, bufferSize, pD);
 		
 		// Maybe create seperate transferqueue?
 		vkQueueWaitIdle(graphicsQueue);

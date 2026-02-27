@@ -54,6 +54,16 @@ layout(set = 0, std430, binding = BIND_TQ) writeonly buffer QuadTauSSBOOut
 	mat2 tQuad[];
 };
 
+layout(set = 0, std430, binding = BIND_PDEBUG) writeonly buffer PDebugOut
+{
+	mat2 pDebug[];
+};
+
+layout(set = 0, std430, binding = BIND_QDEBUG) writeonly buffer QDebugOut
+{
+	mat2 qDebug[];
+};
+
 #define S (4)
 #define LOG2_S (2)
 #define S_MASK (S - 1)
@@ -255,6 +265,9 @@ void main()
 			i01 = subblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 1);
 			i11 = subblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 1);
 
+			if (coordsInBlock.x + 1 >= 6 || coordsInBlock.y + 1 >= 6)
+				pDebug[bins[binIndex].particleId[pIndex]] = mat2(coordsInBlock.x + 1, coordsInBlock.y + 1, cellPosition.x - quadratureBlockCellCoords.x, cellPosition.y - quadratureBlockCellCoords.y);
+
 			atomicAdd(shVWQuad[i00].x, vm00.x);
 			atomicAdd(shVWQuad[i00].y, vm00.y);
 			atomicAdd(shVWQuad[i10].x, vm10.x);
@@ -323,6 +336,7 @@ void main()
 
 	if (inside)
 	{
+		qDebug[quadratureSubblockCellIndex] = mat2(localSubblockIndex);
 		if (atomicless)
 		{
 			vWQuad[quadratureSubblockCellIndex].x = shVWQuad[localSubblockIndex].x;
