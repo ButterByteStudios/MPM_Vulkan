@@ -33,6 +33,11 @@ layout(set = 0, std430, binding = BIND_GQR) writeonly buffer QuadGradientSSBOCle
     mat2 GQuadClear[];
 };
 
+layout(set = 0, std430, binding = BIND_TQ) writeonly buffer QuadTauSSBOClear
+{
+    mat2 tQuadClear[];
+};
+
 layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
 
 void main()
@@ -52,6 +57,7 @@ void main()
     mQuadClear[i] = 0;
     vQuadClear[i] = vec2(0);
     GQuadClear[i] = mat2(0);
+    tQuadClear[i] = mat2(0);
 
     uint i00 = nodeIndex(x, y);
     uint i10 = nodeIndex(x + 1, y);

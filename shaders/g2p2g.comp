@@ -191,8 +191,6 @@ void main()
 			B[0] = v * dx0 + (v10 + v11) * dx;
 			B[1] = v * dy0 + dx * (v01 + v11);
 
-			float inv_D = 4.0 * invDx * invDx;
-
 			mat2 F = (mat2(1.0) + G * dt) * bins[binIndex].F[pIndex];
 
 			float J = determinant(F);
@@ -237,22 +235,20 @@ void main()
 			mat2 tau_dev = mu * dev_b / J;
 
 			mat2 tau = tau_dev + tau_vol;
-			mat2 cauchy = tau / J;
 
 			float volume = mass / rho;
 			float currentVolume = volume * J;
 			
-			mat2 stress = dt * -currentVolume * cauchy * inv_D;
 			mat2 weighedG = G * mass;
-			mat2 affine = stress + weighedG;
+			mat2 weighedTau = tau * volume;
 
 			vec2 vm = v * mass;
 
-			vec2 ax0 = affine[0] * dx0;
-			vec2 ax1 = affine[0] * dx1;
+			vec2 ax0 = weighedG[0] * dx0;
+			vec2 ax1 = weighedG[0] * dx1;
 
-			vec2 ay0 = affine[1] * dy0;
-			vec2 ay1 = affine[1] * dy1;
+			vec2 ay0 = weighedG[1] * dy0;
+			vec2 ay1 = weighedG[1] * dy1;
 
 			vec2 vm00 = w00 * (vm + ax0 + ay0);
 			vec2 vm10 = w10 * (vm + ax1 + ay0);
@@ -264,9 +260,6 @@ void main()
 			i10 = subblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 0);
 			i01 = subblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 1);
 			i11 = subblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 1);
-
-			if (coordsInBlock.x + 1 >= 6 || coordsInBlock.y + 1 >= 6)
-				pDebug[bins[binIndex].particleId[pIndex]] = mat2(coordsInBlock.x + 1, coordsInBlock.y + 1, cellPosition.x - quadratureBlockCellCoords.x, cellPosition.y - quadratureBlockCellCoords.y);
 
 			atomicAdd(shVWQuad[i00].x, vm00.x);
 			atomicAdd(shVWQuad[i00].y, vm00.y);
@@ -284,6 +277,7 @@ void main()
 
 			atomicAdd(shMQuad[i01], mass * w01);
 			atomicAdd(shMQuad[i11], mass * w11);
+
 
 			atomicAdd(shGWQuad[i00][0][0], weighedG[0][0] * w00);
 			atomicAdd(shGWQuad[i00][1][0], weighedG[1][0] * w00);
@@ -306,25 +300,25 @@ void main()
 			atomicAdd(shGWQuad[i11][1][1], weighedG[1][1] * w11);
 
 
-			atomicAdd(shTQuad[i00][0][0], tau[0][0] * w00);
-			atomicAdd(shTQuad[i00][1][0], tau[1][0] * w00);
-			atomicAdd(shTQuad[i00][0][1], tau[0][1] * w00);
-			atomicAdd(shTQuad[i00][1][1], tau[1][1] * w00);
+			atomicAdd(shTQuad[i00][0][0], weighedTau[0][0] * w00);
+			atomicAdd(shTQuad[i00][1][0], weighedTau[1][0] * w00);
+			atomicAdd(shTQuad[i00][0][1], weighedTau[0][1] * w00);
+			atomicAdd(shTQuad[i00][1][1], weighedTau[1][1] * w00);
 
-			atomicAdd(shTQuad[i10][0][0], tau[0][0] * w10);
-			atomicAdd(shTQuad[i10][1][0], tau[1][0] * w10);
-			atomicAdd(shTQuad[i10][0][1], tau[0][1] * w10);
-			atomicAdd(shTQuad[i10][1][1], tau[1][1] * w10);
+			atomicAdd(shTQuad[i10][0][0], weighedTau[0][0] * w10);
+			atomicAdd(shTQuad[i10][1][0], weighedTau[1][0] * w10);
+			atomicAdd(shTQuad[i10][0][1], weighedTau[0][1] * w10);
+			atomicAdd(shTQuad[i10][1][1], weighedTau[1][1] * w10);
 
-			atomicAdd(shTQuad[i01][0][0], tau[0][0] * w01);
-			atomicAdd(shTQuad[i01][1][0], tau[1][0] * w01);
-			atomicAdd(shTQuad[i01][0][1], tau[0][1] * w01);
-			atomicAdd(shTQuad[i01][1][1], tau[1][1] * w01);
+			atomicAdd(shTQuad[i01][0][0], weighedTau[0][0] * w01);
+			atomicAdd(shTQuad[i01][1][0], weighedTau[1][0] * w01);
+			atomicAdd(shTQuad[i01][0][1], weighedTau[0][1] * w01);
+			atomicAdd(shTQuad[i01][1][1], weighedTau[1][1] * w01);
 
-			atomicAdd(shTQuad[i11][0][0], tau[0][0] * w11);
-			atomicAdd(shTQuad[i11][1][0], tau[1][0] * w11);
-			atomicAdd(shTQuad[i11][0][1], tau[0][1] * w11);
-			atomicAdd(shTQuad[i11][1][1], tau[1][1] * w11); // Out of bounds??
+			atomicAdd(shTQuad[i11][0][0], weighedTau[0][0] * w11);
+			atomicAdd(shTQuad[i11][1][0], weighedTau[1][0] * w11);
+			atomicAdd(shTQuad[i11][0][1], weighedTau[0][1] * w11);
+			atomicAdd(shTQuad[i11][1][1], weighedTau[1][1] * w11);
 
 			uvec2 blockCoords = toBlockCoords(cellPosition);
 			uint bIndex = atomicAdd(histogram[blockIndex(blockCoords.x, blockCoords.y)], 1);
@@ -336,7 +330,6 @@ void main()
 
 	if (inside)
 	{
-		qDebug[quadratureSubblockCellIndex] = mat2(localSubblockIndex);
 		if (atomicless)
 		{
 			vWQuad[quadratureSubblockCellIndex].x = shVWQuad[localSubblockIndex].x;
