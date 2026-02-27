@@ -11,6 +11,7 @@
 #define BIND_GQR (10)
 #define BIND_GQW (11)
 #define BIND_VN (12)
+#define BIND_TQ (13)
 
 #define BIND_UBO (0)
 #define BIND_G (1)

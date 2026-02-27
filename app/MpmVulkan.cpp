@@ -297,6 +297,7 @@ private:
 
 	std::vector<val::AllocatedBuffer> vQuadBuffers; // G2p2g requires a reperate read and write buffer to prevent race conditions
 	std::vector<val::AllocatedBuffer> GQuadBuffers;
+	val::AllocatedBuffer tQuadBuffer;
 	val::AllocatedBuffer mQuadBuffer;
 	val::AllocatedBuffer vNodeBuffer;
 
@@ -1115,7 +1116,7 @@ private:
 			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1.0f }
 		};
 
-		substepComputeDescriptorAllocator.initPool(device, 2 * 13, substepSizes);
+		substepComputeDescriptorAllocator.initPool(device, 2 * 14, substepSizes);
 
 		dsl::DescriptorLayoutBuilder substepBuilder{};
 		substepBuilder.addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // VQR
@@ -1131,6 +1132,7 @@ private:
 		substepBuilder.addBinding(10, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // GQR
 		substepBuilder.addBinding(11, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // GQW
 		substepBuilder.addBinding(12, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // VN
+		substepBuilder.addBinding(13, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // TQ
 
 		substepBuilder.build(device, VK_SHADER_STAGE_COMPUTE_BIT, substepComputeDescriptorSetLayout);
 
@@ -1142,8 +1144,8 @@ private:
 		for (size_t i = 0; i < 2; i++)
 		{
 			uint32_t binding = 0;
-			std::array<VkWriteDescriptorSet, 13> descriptorWrites{};
-			std::array<VkDescriptorBufferInfo, 13> descriptorInfos{};
+			std::array<VkWriteDescriptorSet, 14> descriptorWrites{};
+			std::array<VkDescriptorBufferInfo, 14> descriptorInfos{};
 
 			binding = 0;
 			descriptorInfos[binding].buffer = vQuadBuffers[(i + 2 - 1) % 2].buffer;
@@ -1305,6 +1307,19 @@ private:
 			descriptorInfos[binding].buffer = vNodeBuffer.buffer;
 			descriptorInfos[binding].offset = 0;
 			descriptorInfos[binding].range = sizeof(glm::vec2) * nodeCount;
+
+			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[binding].dstSet = substepDescriptorSets[i];
+			descriptorWrites[binding].dstBinding = binding;
+			descriptorWrites[binding].dstArrayElement = 0;
+			descriptorWrites[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			descriptorWrites[binding].descriptorCount = 1;
+			descriptorWrites[binding].pBufferInfo = &descriptorInfos[binding];
+
+			binding = 13;
+			descriptorInfos[binding].buffer = tQuadBuffer.buffer;
+			descriptorInfos[binding].offset = 0;
+			descriptorInfos[binding].range = sizeof(glm::mat2) * quadCount;
 
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			descriptorWrites[binding].dstSet = substepDescriptorSets[i];
@@ -2076,7 +2091,19 @@ private:
 			});
 
 		cpuToGpuCopy(vNodeBuffer.buffer, bufferSize, vN);
+		//
 
+		// t Quad buffer
+		std::vector<glm::mat2> tQ(quadCount);
+		bufferSize = sizeof(glm::mat2) * quadCount;
+
+		tQuadBuffer = bufferAllocator.create({
+			bufferSize,
+			val::BufferUsage::Indirect,
+			val::BufferLifetime::Static
+			});
+		
+		cpuToGpuCopy(tQuadBuffer.buffer, bufferSize, tQ);
 		//
 		
 		// Maybe create seperate transferqueue?
@@ -2523,6 +2550,7 @@ private:
 		binSumBuffer.dispose();
 		scatterIndirectDispatchBuffer.dispose();
 		vNodeBuffer.dispose();
+		tQuadBuffer.dispose();
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
