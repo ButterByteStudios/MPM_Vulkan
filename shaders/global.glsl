@@ -24,6 +24,7 @@ struct Bin
 	float[BIN_SIZE] mass;
 	uint[BIN_SIZE] blockParticleIndex;
 	uint[BIN_SIZE] particleId;
+	uint[BIN_SIZE] materialId;
 	uint particleCount;
 };
 

@@ -41,6 +41,7 @@ void main()
 	vec2 pPos = binsIn[bIndex].position[currentPIndex];
 	float m = binsIn[bIndex].mass[currentPIndex];
 	uint pId = binsIn[bIndex].particleId[currentPIndex];
+	uint mId = binsIn[bIndex].materialId[currentPIndex];
 	uint blockParticleIndex = binsIn[bIndex].blockParticleIndex[currentPIndex];
 
 	// Find block index from pos = (floor(cellpos + 0.5) - 2) / 4
@@ -58,6 +59,7 @@ void main()
 	binsOut[nextBIndex].position[nextPIndex] = pPos;
 	binsOut[nextBIndex].mass[nextPIndex] = m;
 	binsOut[nextBIndex].particleId[nextPIndex] = pId;
+	binsOut[nextBIndex].materialId[nextPIndex] = mId;
 
 	if (nextPIndex == 0)
 	{

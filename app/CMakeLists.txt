@@ -6,6 +6,7 @@ target_link_libraries(MpmVulkan
 	PRIVATE 
 		glfw
 		glm
+		imgui
 		Vulkan::Vulkan
 		dsl
 		ldl

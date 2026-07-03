@@ -320,5 +320,4 @@ void main()
 	atomicAdd(vWGrid[gridSubblockCellIndex].x, shVWGrid[localSubblockIndex].x);
 	atomicAdd(vWGrid[gridSubblockCellIndex].y, shVWGrid[localSubblockIndex].y);
 	atomicAdd(mGrid[gridSubblockCellIndex], shMGrid[localSubblockIndex]);
-
 }

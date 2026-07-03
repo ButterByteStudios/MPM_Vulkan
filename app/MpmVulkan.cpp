@@ -3,6 +3,9 @@
 #include <glfw/glfw3.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/integer.hpp>
+#include <imgui.h>
+#include <imgui_impl_glfw.h>
+#include <imgui_impl_vulkan.h>
 #include <vulkan/vulkan.h>
 #include <vulkan/vk_enum_string_helper.h>
 
@@ -114,6 +117,7 @@ struct alignas(8) Bin
 	float mass[BIN_SIZE]; // 4 * 32 = 128
 	uint32_t blockParticleIndex[BIN_SIZE]; // 4 * 32 = 128
 	uint32_t particleId[BIN_SIZE];
+	uint32_t materialId[BIN_SIZE];
 	uint32_t particleCount; // 4
 	// Max alignment = 8, so pad till nearest multiple of 8
 	// Total size = 512 + 256 + 128 + 128 + 4 + 4(pad) = 1032 = 8 * 129
@@ -186,6 +190,7 @@ public:
 	{
 		initWindow();
 		initVulkan();
+		initImgui();
 		mainLoop();
 		cleanup();
 	}
@@ -232,6 +237,7 @@ private:
 	dsl::DescriptorAllocator substepComputeDescriptorAllocator;
 	dsl::DescriptorAllocator transferComputeDescriptorAllocator;
 	dsl::DescriptorAllocator graphicsDescriptorAllocator;
+	dsl::DescriptorAllocator imguiDescriptorAllocator;
 	ldl::DeviceBuilder deviceBuilder;
 
 	VkRenderPass renderPass;
@@ -335,6 +341,17 @@ private:
 		{
 			iml::MouseInput::clearFrameValues();
 			glfwPollEvents();
+
+			int width, height;
+			glfwGetFramebufferSize(window, &width, &height);
+
+			ImGui_ImplVulkan_NewFrame();
+			ImGui_ImplGlfw_NewFrame();
+
+			ImGui::NewFrame();
+
+			ImGui::ShowDemoWindow();
+
 			getInput();
 			drawFrame();
 
@@ -386,6 +403,46 @@ private:
 		createCommandBuffers();
 		createComputeCommandBuffers();
 		createSyncObjects();
+	}
+
+	void initImgui()
+	{
+		std::vector<dsl::DescriptorAllocator::PoolSizeRatio> sizes =
+		{
+			{ VK_DESCRIPTOR_TYPE_SAMPLER, 0.0909f },
+			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 0.0909f },
+			{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 0.0909f },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 0.0909f },
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 0.0909f },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 0.0909f },
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0.0909f },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 0.0909f },
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 0.0909f },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 0.0909f },
+			{ VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 0.0909f }
+		};
+
+		imguiDescriptorAllocator.initPool(device, 11000, sizes);
+
+		ImGui::CreateContext();
+
+		ImGui_ImplGlfw_InitForVulkan(window, true);
+
+		ImGui_ImplVulkan_PipelineInfo pipelineInfo = {};
+		pipelineInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+		pipelineInfo.RenderPass = renderPass;
+		
+		ImGui_ImplVulkan_InitInfo initInfo = {};
+		initInfo.Instance = instance;
+		initInfo.PhysicalDevice = physicalDevice;
+		initInfo.Device = device;
+		initInfo.Queue = graphicsQueue;
+		initInfo.DescriptorPool = imguiDescriptorAllocator.pool;
+		initInfo.MinImageCount = 3;
+		initInfo.ImageCount = 3;
+		initInfo.PipelineInfoMain = pipelineInfo;
+
+		ImGui_ImplVulkan_Init(&initInfo);
 	}
 
 	void createInstance()
@@ -509,6 +566,8 @@ private:
 
 		vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
 
+		ImGui::Render();
+
 		uint32_t imageIndex;
 		VkResult result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAquireSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
 
@@ -586,8 +645,7 @@ private:
 
 		memcpy(parameterBuffers[currentImage].mapped, &pUBO, sizeof(pUBO));
 
-		int width;
-		int height;
+		int width, height;
 		glfwGetFramebufferSize(window, &width, &height);
 
 		CameraUBO cUBO{};
@@ -1543,6 +1601,8 @@ private:
 
 		vkCmdDraw(commandBuffer, PARTICLE_COUNT, 1, 0, 0);
 
+		ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
+
 		vkCmdEndRenderPass(commandBuffer);
 
 		if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS)
@@ -1747,8 +1807,7 @@ private:
 
 	void recreateSwapchain()
 	{
-		int width = 0;
-		int height = 0;
+		int width, height;
 		glfwGetFramebufferSize(window, &width, &height);
 		while (width == 0 || height == 0)
 		{
@@ -1860,6 +1919,7 @@ private:
 			bins[binIndex].mass[pIndex] = mass;
 			bins[binIndex].blockParticleIndex[pIndex] = blockPIndex[i];
 			bins[binIndex].particleId[pIndex] = i;
+			bins[binIndex].materialId[pIndex] = 1u;
 			bins[binIndex].particleCount++;
 		}
 
@@ -2446,6 +2506,9 @@ private:
 		graphicsDescriptorAllocator.destroyPool(device);
 		substepComputeDescriptorAllocator.destroyPool(device);
 		transferComputeDescriptorAllocator.destroyPool(device);
+		imguiDescriptorAllocator.destroyPool(device);
+
+		ImGui_ImplVulkan_Shutdown();
 
 		vkDestroyDescriptorSetLayout(device, graphicsDescriptorSetLayout, nullptr);
 		vkDestroyDescriptorSetLayout(device, substepComputeDescriptorSetLayout, nullptr);
