@@ -16,6 +16,8 @@
 #include <iml/mouseInput.h>
 #include <val/vulkanAllocator.h>
 
+#include <materials.h>
+
 #include <filesystem>
 #include <iostream>
 #include <stdexcept>
@@ -90,6 +92,11 @@ struct alignas(8) CameraUBO
 	float zoom;
 };
 
+struct alignas(4) MaterialUBO
+{
+
+};
+
 struct ScatterDispatchData
 {
 	uint32_t dispatchX;
@@ -116,11 +123,10 @@ struct alignas(8) Bin
 	glm::vec2 position[BIN_SIZE]; // 8 * 32 = 256
 	float mass[BIN_SIZE]; // 4 * 32 = 128
 	uint32_t blockParticleIndex[BIN_SIZE]; // 4 * 32 = 128
-	uint32_t particleId[BIN_SIZE];
-	uint32_t materialId[BIN_SIZE];
+	uint32_t particleId[BIN_SIZE]; // 4 * 32
+	uint32_t materialId[BIN_SIZE]; // 4 * 32
 	uint32_t particleCount; // 4
 	// Max alignment = 8, so pad till nearest multiple of 8
-	// Total size = 512 + 256 + 128 + 128 + 4 + 4(pad) = 1032 = 8 * 129
 };
 
 struct alignas(16) Particle
@@ -350,9 +356,47 @@ private:
 
 			ImGui::NewFrame();
 
-			ImGui::ShowDemoWindow();
+			ImGui::Begin("Materials demo");                          
 
-			getInput();
+			static std::vector<MaterialNode> items = { MaterialNode(0) };
+			static int selectedIndex = -1;
+			if (ImGui::BeginListBox("##00"))
+			{
+				for (int n = 0; n < static_cast<uint32_t>(items.size()); n++)
+				{
+					ImGui::PushID(n);
+					if (items[n].renderNode())
+					{
+						selectedIndex = n;
+					}
+
+					ImGui::PopID();
+				}
+
+				ImGui::EndListBox();
+			}
+
+			if (ImGui::Button("Add"))
+				items.push_back(MaterialNode(static_cast<uint32_t>(items.size())));
+
+			ImGui::SameLine();
+
+			if (selectedIndex != -1 && static_cast<uint32_t>(items.size()) > 1 && ImGui::Button("Remove"))
+			{
+				items.erase(items.begin() + selectedIndex);
+				selectedIndex = -1;
+			}
+
+			ImGui::End();
+
+
+			ImGuiIO& io = ImGui::GetIO();
+
+			if (!io.WantCaptureMouse && !io.WantCaptureKeyboard)
+			{
+				getInput();
+			}
+
 			drawFrame();
 
 			double currentTime = glfwGetTime();
@@ -2503,12 +2547,12 @@ private:
 			cameraBuffers[i].dispose();
 		}
 
+		ImGui_ImplVulkan_Shutdown();
+
 		graphicsDescriptorAllocator.destroyPool(device);
 		substepComputeDescriptorAllocator.destroyPool(device);
 		transferComputeDescriptorAllocator.destroyPool(device);
 		imguiDescriptorAllocator.destroyPool(device);
-
-		ImGui_ImplVulkan_Shutdown();
 
 		vkDestroyDescriptorSetLayout(device, graphicsDescriptorSetLayout, nullptr);
 		vkDestroyDescriptorSetLayout(device, substepComputeDescriptorSetLayout, nullptr);
