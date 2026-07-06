@@ -4,9 +4,9 @@
 class Material
 {
 public:
-	float k = 0;
-	float mu = 0;
-	float rho = 0;
+	float E = 100000;
+	float v = 0.45f;
+	float rho = 2000;
 };
 
 class MaterialNode

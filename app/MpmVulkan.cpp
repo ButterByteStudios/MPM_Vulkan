@@ -74,9 +74,6 @@ const bool enableValidationLayers = true;
 struct alignas(8) ParameterUBO
 {
 	glm::vec2 speed;
-	float k;
-	float mu;
-	float rho;
 	float dx;
 	float invDx;
 	uint32_t dimensions;
@@ -92,9 +89,11 @@ struct alignas(8) CameraUBO
 	float zoom;
 };
 
-struct alignas(4) MaterialUBO
+struct alignas(4) MaterialLayout
 {
-
+	float k;
+	float mu;
+	float rho;
 };
 
 struct ScatterDispatchData
@@ -309,6 +308,7 @@ private:
 	val::AllocatedBuffer binCountBuffer;
 	val::AllocatedBuffer binOffsetsBuffer;
 	val::AllocatedBuffer binSumBuffer;
+	val::AllocatedBuffer materialsBuffer;
 
 	val::AllocatedBuffer scatterIndirectDispatchBuffer;
 
@@ -340,6 +340,8 @@ private:
 	glm::vec2 cameraPos = glm::vec2(0);
 	float zoom = 1;
 	glm::vec2 accel = glm::vec2(0);
+
+	uint32_t maxMaterialCount = 10;
 
 	void mainLoop()
 	{
@@ -376,7 +378,7 @@ private:
 				ImGui::EndListBox();
 			}
 
-			if (ImGui::Button("Add"))
+			if (static_cast<uint32_t>(items.size()) < maxMaterialCount && ImGui::Button("Add"))
 				items.push_back(MaterialNode(static_cast<uint32_t>(items.size())));
 
 			ImGui::SameLine();
@@ -676,9 +678,6 @@ private:
 	void updateUniformBuffer(uint32_t currentImage)
 	{
 		ParameterUBO pUBO{};
-		pUBO.k = E / (2.0f * (1.0f - v));
-		pUBO.mu = E / (2.0f * (1.0f + v));
-		pUBO.rho = rho;
 		pUBO.dx = dx;
 		pUBO.invDx = 1.0f / dx;
 		pUBO.dimensions = dimensions;
@@ -1196,10 +1195,10 @@ private:
 	{
 		std::vector<dsl::DescriptorAllocator::PoolSizeRatio> substepSizes =
 		{
-			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 10.0f / 10.0f }
+			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 11.0f / 11.0f }
 		};
 
-		substepComputeDescriptorAllocator.initPool(device, 2 * 10, substepSizes);
+		substepComputeDescriptorAllocator.initPool(device, 2 * 11, substepSizes);
 
 		dsl::DescriptorLayoutBuilder substepBuilder{};
 		substepBuilder.addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // VR
@@ -1212,6 +1211,7 @@ private:
 		substepBuilder.addBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // BR
 		substepBuilder.addBinding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // BW
 		substepBuilder.addBinding(9, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // SID
+		substepBuilder.addBinding(10, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // MAT
 
 		substepBuilder.build(device, VK_SHADER_STAGE_COMPUTE_BIT, substepComputeDescriptorSetLayout);
 
@@ -1223,7 +1223,7 @@ private:
 		for (size_t i = 0; i < 2; i++)
 		{
 			uint32_t binding = 0;
-			std::array<VkWriteDescriptorSet, 10> descriptorWrites{};
+			std::array<VkWriteDescriptorSet, 11> descriptorWrites{};
 
 			VkDescriptorBufferInfo vBufferReadInfo{};
 			vBufferReadInfo.buffer = vBuffers[(i + 2 - 1) % 2].buffer;
@@ -1364,6 +1364,20 @@ private:
 			descriptorWrites[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 			descriptorWrites[binding].descriptorCount = 1;
 			descriptorWrites[binding].pBufferInfo = &scatterIndirectDispatchBufferInfo;
+
+			VkDescriptorBufferInfo materialsBufferInfo{};
+			materialsBufferInfo.buffer = materialsBuffer.buffer;
+			materialsBufferInfo.offset = 0;
+			materialsBufferInfo.range = sizeof(MaterialLayout) * maxMaterialCount;
+
+			binding = 10;
+			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[binding].dstSet = substepDescriptorSets[i];
+			descriptorWrites[binding].dstBinding = binding;
+			descriptorWrites[binding].dstArrayElement = 0;
+			descriptorWrites[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			descriptorWrites[binding].descriptorCount = 1;
+			descriptorWrites[binding].pBufferInfo = &materialsBufferInfo;
 
 			vkUpdateDescriptorSets(device, descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
 		}
@@ -1963,7 +1977,7 @@ private:
 			bins[binIndex].mass[pIndex] = mass;
 			bins[binIndex].blockParticleIndex[pIndex] = blockPIndex[i];
 			bins[binIndex].particleId[pIndex] = i;
-			bins[binIndex].materialId[pIndex] = 1u;
+			bins[binIndex].materialId[pIndex] = 0u;
 			bins[binIndex].particleCount++;
 		}
 
@@ -2136,6 +2150,26 @@ private:
 
 		stagingBuffer.dispose();
 		//
+
+		// Materials
+		bufferSize = sizeof(MaterialLayout) * maxMaterialCount;
+		MaterialLayout materialData{};
+		materialData.k = E / (2.0f * (1.0f - 0.45f));
+		materialData.mu = E / (2.0f * (1.0f + 0.45f));
+		materialData.rho = 2000;
+
+		stagingBuffer = createStagingBuffer(bufferSize);
+		memcpy(stagingBuffer.mapped, &materialData, sizeof(MaterialLayout));
+
+		materialsBuffer = bufferAllocator.create({
+			bufferSize * maxMaterialCount,
+			val::BufferUsage::Storage,
+			val::BufferLifetime::Static
+			});
+
+		copyBuffer(stagingBuffer.buffer, materialsBuffer.buffer, bufferSize);
+
+		stagingBuffer.dispose();
 		
 		// Maybe create seperate transferqueue?
 		vkQueueWaitIdle(graphicsQueue);
@@ -2570,6 +2604,7 @@ private:
 		binOffsetsBuffer.dispose();
 		binSumBuffer.dispose();
 		scatterIndirectDispatchBuffer.dispose();
+		materialsBuffer.dispose();
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{

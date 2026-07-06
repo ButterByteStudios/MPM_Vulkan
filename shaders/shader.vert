@@ -3,9 +3,6 @@
 layout(binding = 0) uniform ParameterUBO
 {
 	vec2 speed;
-	float k;
-	float mu;
-	float rho;
 	float dx;
 	float invDx;
 	uint dimensions;

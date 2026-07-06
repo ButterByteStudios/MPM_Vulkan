@@ -17,8 +17,8 @@ bool MaterialNode::renderNode()
         strncpy(buf, name.c_str(), sizeof(buf) - 1);
         ImGui::InputText("Name", buf, sizeof(buf));
         name = buf;
-        ImGui::InputFloat("##01", &mat.k, 0.01f, 1.0f, "K = %.3f");
-        ImGui::SliderFloat("##02", &mat.mu, 0.0f, 0.49f, "mu = %.3f");
+        ImGui::InputFloat("##01", &mat.E, 0.01f, 1.0f, "E = %.3f");
+        ImGui::SliderFloat("##02", &mat.v, 0.0f, 0.49f, "v = %.3f");
         ImGui::InputFloat("##03", &mat.rho, 0.01f, 1.0f, "rho = %.3f");
         ImGui::TreePop();
         return true;

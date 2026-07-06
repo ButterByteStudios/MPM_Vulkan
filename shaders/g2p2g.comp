@@ -39,6 +39,11 @@ layout(set = 0, std430, binding = BIND_BR) buffer BinSSBOInOut
 	Bin bins[];
 };
 
+layout(set = 0, std430, binding = BIND_MAT) buffer MaterialsSSBOIn
+{
+	Material mats[];
+};
+
 float qw0(float x)
 {
 	float xp = 1.5 - x;
@@ -95,9 +100,6 @@ void main()
 	float invDx = ubo.invDx;
 	float dt = ubo.dt;
 	uint dimensions = ubo.dimensions;
-	float k = ubo.k;
-	float mu = ubo.mu;
-	float rho = ubo.rho;
 
 	uint pIndex = gl_LocalInvocationID.x;
 	ivec2 gridBlockCoords = ivec2(gl_WorkGroupID.xy);
@@ -137,6 +139,10 @@ void main()
 	for (uint binInBlock = 0; binInBlock < binCount; binInBlock++)
 	{
 		uint binIndex = baseBin + binInBlock;
+		float k = mats[bins[binIndex].materialId[pIndex]].k;
+		float mu = mats[bins[binIndex].materialId[pIndex]].mu;
+		float rho = mats[bins[binIndex].materialId[pIndex]].rho;
+
 		uint binParticleCount = bins[binIndex].particleCount;
 		if (pIndex < binParticleCount)
 		{

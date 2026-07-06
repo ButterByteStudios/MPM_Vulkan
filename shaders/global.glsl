@@ -8,6 +8,7 @@
 #define BIND_BR (7)
 #define BIND_BW (8)
 #define BIND_SID (9)
+#define BIND_MAT (10)
 
 #define BIND_UBO (0)
 #define BIND_G (1)
@@ -34,12 +35,16 @@ struct Particle
 	vec2 position;
 };
 
-layout(set = 1, binding = BIND_UBO) uniform ParameterUBO
+struct Material
 {
-	vec2 speed;
 	float k;
 	float mu;
 	float rho;
+};
+
+layout(set = 1, binding = BIND_UBO) uniform ParameterUBO
+{
+	vec2 speed;
 	float dx;
 	float invDx;
 	uint dimensions;
