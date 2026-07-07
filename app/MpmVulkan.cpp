@@ -89,6 +89,12 @@ struct alignas(8) CameraUBO
 	float zoom;
 };
 
+struct alignas(8) InteractUBO
+{
+	glm::vec2 mousePos;
+	uint32_t particleCount;
+};
+
 struct alignas(4) MaterialLayout
 {
 	float k;
@@ -309,11 +315,15 @@ private:
 	val::AllocatedBuffer binOffsetsBuffer;
 	val::AllocatedBuffer binSumBuffer;
 	val::AllocatedBuffer materialsBuffer;
+	// If spawning happends, add another compute shader after g2p2g which spawns oarticles into this buffer and atomically adds to the counters
+	// After the scatter, run another compute shader to add the spawned particles
+	val::AllocatedBuffer spawnBuffer; 
 
 	val::AllocatedBuffer scatterIndirectDispatchBuffer;
 
 	std::vector<val::AllocatedBuffer> parameterBuffers;
 	std::vector<val::AllocatedBuffer> cameraBuffers;
+	val::AllocatedBuffer interactionBuffer; // Stores spawn/delete information
 
 	uint32_t dimensions = 1 << 7;
 	uint32_t gridBlockDimensions = dimensions >> 2;
