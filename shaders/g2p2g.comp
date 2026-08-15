@@ -62,16 +62,11 @@ float qw2(float x)
 	return 0.5 * xp * xp;
 }
 
-uint morton(uint x, uint y)
-{
-	return (part1by1(x) << 1) | part1by1(y);
-}
-
 #define G (4)
 #define LOG2_G (2)
 #define G_MASK (G - 1)
 #define G2 (G * G)
-#define GBlockDimensions (G * 2)
+#define GBlockDimensions (G + 2 + 2) // Will be G + 3 + 3 for the delayed scatter
 #define GBlock (GBlockDimensions * GBlockDimensions)
 
 uint gridSubblockBlockIndex(uint x, uint y)
@@ -127,7 +122,7 @@ void main()
 	uint blockX = blockLocalX + subblockCellX;
 	uint blockY = blockLocalY + subblockCellY;
 
-	uint gridSubblockCellIndex = morton(gridBlockCellCoords.x + subblockCellX, gridBlockCellCoords.y + subblockCellY) + localIndex;
+	uint gridSubblockCellIndex = partialMorton(gridBlockCellCoords.x + subblockCellX, gridBlockCellCoords.y + subblockCellY) + localIndex;
 	uint localSubblockIndex = gridSubblockBlockIndex(blockX, blockY);
 
 	shVRGrid[localSubblockIndex] = vRGrid[gridSubblockCellIndex];
@@ -268,6 +263,7 @@ void main()
 			vec2 ay0 = affine[1] * dy0;
 			vec2 ay1 = affine[1] * dy1;
 			vec2 ay2 = affine[1] * dy2;
+
 
 			vec2 vm00 = w00 * (vm + ax0 + ay0);
 			vec2 vm10 = w10 * (vm + ax1 + ay0);

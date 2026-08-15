@@ -24,6 +24,11 @@ void main()
 {
     uint x = gl_GlobalInvocationID.x;
     uint y = gl_GlobalInvocationID.y;
+
+	if (x >= ubo.dimensions || y >= ubo.dimensions)
+	{
+		return;
+	}
     
     uint i = partialMorton(x, y);
 

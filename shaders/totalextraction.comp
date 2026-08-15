@@ -24,6 +24,5 @@ layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
 void main()
 {
-    uint validRange = ubo.blockDimensions * ubo.blockDimensions;
-    scatterX = blockBinOffsets[validRange - 1] + blockBinCount[validRange - 1];
+    scatterX = blockBinOffsets[ubo.blocks - 1] + blockBinCount[ubo.blocks - 1];
 }

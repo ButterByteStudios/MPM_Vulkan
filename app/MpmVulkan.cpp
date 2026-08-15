@@ -78,6 +78,7 @@ struct alignas(8) ParameterUBO
 	float invDx;
 	uint32_t dimensions;
 	uint32_t blockDimensions;
+	uint32_t blocks;
 	float dt;
 	float invDt;
 };
@@ -315,7 +316,7 @@ private:
 	val::AllocatedBuffer binOffsetsBuffer;
 	val::AllocatedBuffer binSumBuffer;
 	val::AllocatedBuffer materialsBuffer;
-	// If spawning happends, add another compute shader after g2p2g which spawns oarticles into this buffer and atomically adds to the counters
+	// If spawning happends, add another compute shader after g2p2g which spawns Particles into this buffer and atomically adds to the counters
 	// After the scatter, run another compute shader to add the spawned particles
 	val::AllocatedBuffer spawnBuffer; 
 
@@ -325,11 +326,11 @@ private:
 	std::vector<val::AllocatedBuffer> cameraBuffers;
 	val::AllocatedBuffer interactionBuffer; // Stores spawn/delete information
 
-	uint32_t dimensions = 1 << 7;
-	uint32_t gridBlockDimensions = dimensions >> 2;
+	uint32_t dimensions = 132;
+	uint32_t gridBlockDimensions = dimensions / 4;
 	uint32_t particleBlockDimensions = gridBlockDimensions - 1;
-	uint32_t paddedParticleBlockDimensions = gridBlockDimensions;
-	uint32_t paddedParticleBlockCount = gridBlockDimensions * gridBlockDimensions;
+	uint32_t paddedParticleBlockDimensions = glm::exp2(glm::ceil(glm::log2(static_cast<float>(gridBlockDimensions))));
+	uint32_t paddedParticleBlockCount = paddedParticleBlockDimensions * paddedParticleBlockDimensions;
 
 	uint32_t binCount = particleBlockDimensions * particleBlockDimensions + ceilIntDivision(PARTICLE_COUNT, BIN_SIZE); // Impossibly worst case scenario. Every bin is full and all blocks have one non-full bin
 
@@ -340,11 +341,11 @@ private:
 	float sensitivity = 0.002f;
 	float scrollSensitivity = 0.05f;
 
-	float E = 100000;
+	float E = 50000;
 	float v = 0.45f;
 	float rho = 2000;
 	float dx = 1.0f / dimensions;
-	float dt = 0.0002f;
+	float dt = 0.00015f;
 	float size = 0.2f;
 	uint32_t substeps = 15;
 	glm::vec2 cameraPos = glm::vec2(0);
@@ -692,6 +693,7 @@ private:
 		pUBO.invDx = 1.0f / dx;
 		pUBO.dimensions = dimensions;
 		pUBO.blockDimensions = particleBlockDimensions;
+		pUBO.blocks = particleBlockDimensions * particleBlockDimensions;
 		pUBO.dt = dt;
 		pUBO.invDt = 1.0f / pUBO.dt;
 		pUBO.speed = accel;
@@ -1720,7 +1722,7 @@ private:
 			);
 
 			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, processhistogramComputePipeline);
-			vkCmdDispatch(commandBuffer, paddedParticleBlockDimensions / BLOCK_KERNEL_SIZE, paddedParticleBlockDimensions / BLOCK_KERNEL_SIZE, 1);
+			vkCmdDispatch(commandBuffer, ceilIntDivision(paddedParticleBlockDimensions, BLOCK_KERNEL_SIZE), ceilIntDivision(paddedParticleBlockDimensions, BLOCK_KERNEL_SIZE), 1);
 
 			vkCmdPipelineBarrier(commandBuffer,
 				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -1733,7 +1735,7 @@ private:
 
 			// Look into https://research.nvidia.com/publication/2016-03_single-pass-parallel-prefix-scan-decoupled-look-back
 			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, localsumComputePipeline);
-			vkCmdDispatch(commandBuffer, paddedParticleBlockCount / SUM_KERNEL_SIZE, 1, 1);
+			vkCmdDispatch(commandBuffer, ceilIntDivision(paddedParticleBlockCount, SUM_KERNEL_SIZE), 1, 1);
 
 			vkCmdPipelineBarrier(commandBuffer,
 				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -1757,7 +1759,7 @@ private:
 			);
 
 			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, globalsumComputePipeline);
-			vkCmdDispatch(commandBuffer, paddedParticleBlockCount / SUM_KERNEL_SIZE, 1, 1);
+			vkCmdDispatch(commandBuffer, ceilIntDivision(paddedParticleBlockCount, SUM_KERNEL_SIZE), 1, 1);
 
 			vkCmdPipelineBarrier(commandBuffer,
 				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -1794,7 +1796,7 @@ private:
 			);
 
 			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, clearhistogramComputePipeline);
-			vkCmdDispatch(commandBuffer, paddedParticleBlockCount / (BLOCK_KERNEL_SIZE * BLOCK_KERNEL_SIZE), 1, 1);
+			vkCmdDispatch(commandBuffer, ceilIntDivision(paddedParticleBlockCount, (BLOCK_KERNEL_SIZE * BLOCK_KERNEL_SIZE)), 1, 1);
 
 			vkCmdPipelineBarrier(commandBuffer,
 				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -1807,7 +1809,7 @@ private:
 
 			// Theres no dependency between particle reordering and grid so change the positioning
 			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, gridComputePipeline);
-			vkCmdDispatch(commandBuffer, dimensions / GRID_KERNEL_SIZE, dimensions / GRID_KERNEL_SIZE, 1);
+			vkCmdDispatch(commandBuffer, ceilIntDivision(dimensions, GRID_KERNEL_SIZE), ceilIntDivision(dimensions, GRID_KERNEL_SIZE), 1);
 
 			vkCmdPipelineBarrier(commandBuffer,
 				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -1951,10 +1953,12 @@ private:
 			glm::vec2 cellPos = glm::vec2(x, y);
 			glm::vec2 pos = cellPos * dx;
 			glm::ivec2 coords = glm::ivec2(glm::floor(cellPos - 1.5f));
-			glm::ivec2 blockCoords = coords >> 2;
+			glm::ivec2 blockCoords = coords / 4;
 			uint32_t blockIndex = blockCoords.x + blockCoords.y * particleBlockDimensions;
 
 			blockIndices[i] = blockIndex;
+			auto test1 = blockPIndex[i];
+			auto test2 = histogram[blockIndex];
 			blockPIndex[i] = histogram[blockIndex]++;
 			particles[i].position = pos;
 			particles[i].color = glm::vec4(rndDist(rndEngine), rndDist(rndEngine), rndDist(rndEngine), 1.0f);
@@ -2164,8 +2168,8 @@ private:
 		// Materials
 		bufferSize = sizeof(MaterialLayout) * maxMaterialCount;
 		MaterialLayout materialData{};
-		materialData.k = E / (2.0f * (1.0f - 0.45f));
-		materialData.mu = E / (2.0f * (1.0f + 0.45f));
+		materialData.k = E / (3.0 - 6.0 * this->v);
+		materialData.mu = E / (2.0 + 2.0 * this->v);
 		materialData.rho = 2000;
 
 		stagingBuffer = createStagingBuffer(bufferSize);

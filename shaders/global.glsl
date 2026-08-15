@@ -49,6 +49,7 @@ layout(set = 1, binding = BIND_UBO) uniform ParameterUBO
 	float invDx;
 	uint dimensions;
 	uint blockDimensions;
+	uint blocks;
 	float dt;
 	float invDt;
 } ubo;
@@ -65,6 +66,11 @@ uint part1by1(uint x)
 	x = (x | (x << 2)) & 0x33333333;
 	x = (x | (x << 1)) & 0x55555555;
 	return x;
+}
+
+uint morton(uint x, uint y)
+{
+	return (part1by1(x) << 1) | part1by1(y);
 }
 
 uint partialMorton(uint x, uint y)
