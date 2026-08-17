@@ -239,14 +239,8 @@ void main()
 			float w22 = uw2 * vw2;
 
 			mat2 F_T = transpose(F);
-			mat2 b = F * F_T;
-			float tr_b = b[0][0] + b[1][1];
-			mat2 dev_b = b - tr_b * 0.5 * mat2(1.0);
-			mat2 tau_vol = (0.5 * k) * (J * J - 1.0) * mat2(1.0);
-			mat2 tau_dev = mu * dev_b / J;
-
-			mat2 tau = tau_dev + tau_vol;
-			mat2 cauchy = tau / J;
+			float lambda = k - (2.0 * mu / 3.0); 
+			mat2 cauchy = mu / J * (F * F_T - mat2(1.0)) + (lambda * log(J) / J) * mat2(1.0);
 
 			float volume = mass / rho;
 			float currentVolume = volume * J;

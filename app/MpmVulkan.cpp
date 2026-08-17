@@ -35,7 +35,7 @@
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 800;
-const uint32_t MAX_FRAMES_IN_FLIGHT = 2;
+const uint32_t MAX_FRAMES_IN_FLIGHT = 3;
 const uint32_t PARTICLE_COUNT = 1 << 17;
 const uint32_t BIN_KERNEL_SIZE = 1;
 const uint32_t GRID_KERNEL_SIZE = 32;
@@ -326,7 +326,7 @@ private:
 	std::vector<val::AllocatedBuffer> cameraBuffers;
 	val::AllocatedBuffer interactionBuffer; // Stores spawn/delete information
 
-	uint32_t dimensions = 132;
+	uint32_t dimensions = 128;
 	uint32_t gridBlockDimensions = dimensions / 4;
 	uint32_t particleBlockDimensions = gridBlockDimensions - 1;
 	uint32_t paddedParticleBlockDimensions = glm::exp2(glm::ceil(glm::log2(static_cast<float>(gridBlockDimensions))));
@@ -341,11 +341,11 @@ private:
 	float sensitivity = 0.002f;
 	float scrollSensitivity = 0.05f;
 
-	float E = 50000;
+	float E = 10000;
 	float v = 0.45f;
 	float rho = 2000;
 	float dx = 1.0f / dimensions;
-	float dt = 0.00015f;
+	float dt = 0.00010f;
 	float size = 0.2f;
 	uint32_t substeps = 15;
 	glm::vec2 cameraPos = glm::vec2(0);
@@ -1918,9 +1918,9 @@ private:
 	// Make a method for these copies or smth
 	void createShaderStorageBuffers()
 	{
-		binBuffers.resize(2);
-		graphicsBuffers.resize(2);
-		vBuffers.resize(2);
+		binBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+		graphicsBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+		vBuffers.resize(MAX_FRAMES_IN_FLIGHT);
 
 		float pi = 3.14159265358979323846f;
 		float worldR = size * (dimensions / 2) * dx;
@@ -2001,7 +2001,7 @@ private:
 		val::AllocatedBuffer stagingBuffer = createStagingBuffer(bufferSize);
 		memcpy(stagingBuffer.mapped, bins.data(), (size_t)bufferSize);
 
-		for (size_t i = 0; i < 2; i++)
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
 			binBuffers[i] = bufferAllocator.create({
 				bufferSize,
@@ -2022,7 +2022,7 @@ private:
 		stagingBuffer = createStagingBuffer(bufferSize);
 		memcpy(stagingBuffer.mapped, v.data(), (size_t)bufferSize);
 
-		for (size_t i = 0; i < 2; i++)
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
 			vBuffers[i] = bufferAllocator.create({
 				bufferSize,
@@ -2130,7 +2130,7 @@ private:
 		stagingBuffer = createStagingBuffer(bufferSize);
 		memcpy(stagingBuffer.mapped, particles.data(), (size_t)bufferSize);
 		
-		for (size_t i = 0; i < 2; i++)
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
 			graphicsBuffers[i] = bufferAllocator.create({
 				bufferSize,
