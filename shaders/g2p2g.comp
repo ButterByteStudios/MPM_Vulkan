@@ -67,27 +67,27 @@ float qw2(float x)
 #define G_MASK (G - 1)
 #define G2 (G * G)
 #define GBlockDimensions (G + 2 + 2)
+#define QuadraticGBlockDimensions (G + 3 + 3)
 #define GBlock (GBlockDimensions * GBlockDimensions)
+#define QuadraticGBlock (QuadraticGBlockDimensions * QuadraticGBlockDimensions)
 
 uint getSubblockIndex(uint x, uint y)
 {
-	return x + y * GBlockDimensions;
+	return x + y * QuadraticGBlockDimensions;
 }
 
 layout(local_size_x = BIN_SIZE, local_size_y = 1, local_size_z = 1) in;
 
 // Naming conventions
-// Gridblock = the G*G blocks comprising the grid
-// Particleblock = the G*G blocks used for the particle spatial hash. Spatially off by two gridcells from the gridblocks
-// Subblock = one of the 4 blocks loaded into shared memory
-// Local = things inside of a subblock
+// Particleblock = the G*G blocks used for the particle spatial hash. Spatially off by 4 gridcells from the bottom left
+// Subblock = the block loaded into shared memory
 // Coords = vec2 of the coordinates. suffix determines of what
 // Cell = a suffix denoting the prefix is in cellspace
 // Index = a suffix denoting the prefix is a flattened index
 
-shared vec2 shVRGrid[GBlock];
-shared vec2 shVWGrid[GBlock];
-shared float shMGrid[GBlock];
+shared vec2 shVRGrid[QuadraticGBlock];
+shared vec2 shVWGrid[QuadraticGBlock];
+shared float shMGrid[QuadraticGBlock];
 
 void main()
 {
@@ -98,7 +98,7 @@ void main()
 
 	uint pIndex = gl_LocalInvocationID.x;
 	ivec2 particleBlockCoords = ivec2(gl_WorkGroupID.xy);
-	ivec2 particleBlockCellCoords = particleBlockCoords * G + ivec2(2, 2); // The corner of the cellblock
+	ivec2 particleBlockCellCoords = particleBlockCoords * G + ivec2(1, 1); // The bottom left corner of the cellblock
 
 	uint particleBlockIndex = blockIndex(particleBlockCoords.x, particleBlockCoords.y);
 	uint binCount = blockBinCount[particleBlockIndex];
@@ -110,15 +110,27 @@ void main()
 	uint baseBin = blockBinOffsets[particleBlockIndex];
 
 	// Subblock x/y represent the subblock offsets determined by the bin
-	uint subblockX = pIndex % 8u;
-	uint subblockY = pIndex / 8u;
-
-	uint subblockCellIndex = morton(particleBlockCellCoords.x + subblockX, particleBlockCellCoords.y + subblockY); // Incorrect for the new padding (cant just add the local index)
 	uint subblockIndex = pIndex;
+	uint extraSubblockIndex = 64 + pIndex;
+	
+
+	// Improve this by mixing the 8x8 block and the remaining 36 as seperate things to be filled?
+	uint subblockX = pIndex % 10u;
+	uint subblockY = pIndex / 10u;
+
+	uint subblockCellIndex = morton(particleBlockCellCoords.x + subblockX, particleBlockCellCoords.y + subblockY);
+	uint extraSubblockCellIndex = morton(particleBlockCellCoords.x + (extraSubblockIndex % 10u), particleBlockCellCoords.y + (extraSubblockIndex / 10u));
 
 	shVRGrid[subblockIndex] = vRGrid[subblockCellIndex];
 	shVWGrid[subblockIndex] = vec2(0);
 	shMGrid[subblockIndex] = 0;
+
+	if (pIndex < 36)
+	{
+		shVRGrid[extraSubblockIndex] = vRGrid[extraSubblockCellIndex];
+		shVWGrid[extraSubblockIndex] = vec2(0);
+		shMGrid[extraSubblockIndex] = 0;	
+	}
 
 	barrier();
 	
@@ -313,6 +325,13 @@ void main()
 	atomicAdd(vWGrid[subblockCellIndex].x, shVWGrid[subblockIndex].x);
 	atomicAdd(vWGrid[subblockCellIndex].y, shVWGrid[subblockIndex].y);
 	atomicAdd(mGrid[subblockCellIndex], shMGrid[subblockIndex]);
+
+	if (pIndex < 36)
+	{	
+		atomicAdd(vWGrid[extraSubblockCellIndex].x, shVWGrid[extraSubblockIndex].x);
+		atomicAdd(vWGrid[extraSubblockCellIndex].y, shVWGrid[extraSubblockIndex].y);
+		atomicAdd(mGrid[extraSubblockCellIndex], shMGrid[extraSubblockIndex]);
+	}
 }
 
 
