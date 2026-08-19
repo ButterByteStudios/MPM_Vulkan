@@ -55,8 +55,7 @@ const std::vector<const char*> instanceExtensions =
 
 const std::vector<VkValidationFeatureEnableEXT> validationExtensions =
 {
-	VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT,
-	VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_RESERVE_BINDING_SLOT_EXT
+
 };
 
 const std::vector<const char*> deviceExtensions =

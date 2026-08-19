@@ -111,25 +111,17 @@ void main()
 
 	// Subblock x/y represent the subblock offsets determined by the bin
 	uint subblockIndex = pIndex;
-	uint extraSubblockIndex = 64 + pIndex;
-	
 
-	// Improve this by mixing the 8x8 block and the remaining 36 as seperate things to be filled?
-	uint subblockX = pIndex % 10u;
-	uint subblockY = pIndex / 10u;
-
-	uint subblockCellIndex = morton(particleBlockCellCoords.x + subblockX, particleBlockCellCoords.y + subblockY);
-	uint extraSubblockCellIndex = morton(particleBlockCellCoords.x + (extraSubblockIndex % 10u), particleBlockCellCoords.y + (extraSubblockIndex / 10u));
-
-	shVRGrid[subblockIndex] = vRGrid[subblockCellIndex];
-	shVWGrid[subblockIndex] = vec2(0);
-	shMGrid[subblockIndex] = 0;
-
-	if (pIndex < 36)
+	for (uint i = pIndex; i < 100; i += 64)
 	{
-		shVRGrid[extraSubblockIndex] = vRGrid[extraSubblockCellIndex];
-		shVWGrid[extraSubblockIndex] = vec2(0);
-		shMGrid[extraSubblockIndex] = 0;	
+		uint subblockY = i / 10u;
+		uint subblockX = i - subblockY * 10u;
+
+		uint subblockCellIndex = morton(particleBlockCellCoords.x + subblockX, particleBlockCellCoords.y + subblockY);
+
+		shVRGrid[i] = vRGrid[subblockCellIndex];
+		shVWGrid[i] = vec2(0);
+		shMGrid[i] = 0;
 	}
 
 	barrier();
@@ -322,15 +314,16 @@ void main()
 
 	barrier();
 
-	atomicAdd(vWGrid[subblockCellIndex].x, shVWGrid[subblockIndex].x);
-	atomicAdd(vWGrid[subblockCellIndex].y, shVWGrid[subblockIndex].y);
-	atomicAdd(mGrid[subblockCellIndex], shMGrid[subblockIndex]);
+	for (uint i = pIndex; i < 100; i += 64)
+	{
+		uint subblockY = i / 10u;
+		uint subblockX = i - subblockY * 10u;
 
-	if (pIndex < 36)
-	{	
-		atomicAdd(vWGrid[extraSubblockCellIndex].x, shVWGrid[extraSubblockIndex].x);
-		atomicAdd(vWGrid[extraSubblockCellIndex].y, shVWGrid[extraSubblockIndex].y);
-		atomicAdd(mGrid[extraSubblockCellIndex], shMGrid[extraSubblockIndex]);
+		uint subblockCellIndex = morton(particleBlockCellCoords.x + subblockX, particleBlockCellCoords.y + subblockY);
+
+		atomicAdd(vWGrid[subblockCellIndex].x, shVWGrid[i].x);
+		atomicAdd(vWGrid[subblockCellIndex].y, shVWGrid[i].y);
+		atomicAdd(mGrid[subblockCellIndex], shMGrid[i]);
 	}
 }
 
