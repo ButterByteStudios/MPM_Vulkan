@@ -35,8 +35,8 @@
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 800;
-const uint32_t MAX_FRAMES_IN_FLIGHT = 3;
-const uint32_t PARTICLE_COUNT = 1 << 17;
+const uint32_t MAX_FRAMES_IN_FLIGHT = 2;
+const uint32_t PARTICLE_COUNT = 1 << 10;
 const uint32_t BIN_KERNEL_SIZE = 1;
 const uint32_t GRID_KERNEL_SIZE = 32;
 const uint32_t BLOCK_KERNEL_SIZE = 16;
@@ -326,9 +326,9 @@ private:
 	std::vector<val::AllocatedBuffer> cameraBuffers;
 	val::AllocatedBuffer interactionBuffer; // Stores spawn/delete information
 
-	uint32_t dimensions = 128;
-	uint32_t gridBlockDimensions = dimensions / 4;
-	uint32_t particleBlockDimensions = gridBlockDimensions - 1;
+	uint32_t dimensions = 128; // How many grid nodes in each axis
+	uint32_t gridBlockDimensions = dimensions / 4; // How many grid blocks in each axis
+	uint32_t particleBlockDimensions = gridBlockDimensions - 2; // How many particle blocks in each axis
 	uint32_t paddedParticleBlockDimensions = glm::exp2(glm::ceil(glm::log2(static_cast<float>(gridBlockDimensions))));
 	uint32_t paddedParticleBlockCount = paddedParticleBlockDimensions * paddedParticleBlockDimensions;
 
@@ -1952,7 +1952,7 @@ private:
 
 			glm::vec2 cellPos = glm::vec2(x, y);
 			glm::vec2 pos = cellPos * dx;
-			glm::ivec2 coords = glm::ivec2(glm::floor(cellPos - 1.5f));
+			glm::ivec2 coords = glm::ivec2(glm::floor(cellPos - 3.5f));
 			glm::ivec2 blockCoords = coords / 4;
 			uint32_t blockIndex = blockCoords.x + blockCoords.y * particleBlockDimensions;
 

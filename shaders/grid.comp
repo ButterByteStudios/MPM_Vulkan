@@ -30,7 +30,7 @@ void main()
 		return;
 	}
     
-    uint i = partialMorton(x, y);
+    uint i = morton(x, y);
 
 	vec2 v = vGrid[i];
 	float m = mGrid[i];
@@ -40,10 +40,10 @@ void main()
 	vClearGrid[i] = vec2(0);
 
 	// 3 outer node halos are boundaries so particles stay in particle block territory
-	bool left = x <= 4;
-	bool right = x >= ubo.dimensions - 4;
-	bool down = y <= 4;
-	bool up = y >= ubo.dimensions - 4;
+	bool left = x <= 8;
+	bool right = x >= ubo.dimensions - 8;
+	bool down = y <= 8;
+	bool up = y >= ubo.dimensions - 8;
 
 	vec2 acceleration = vec2(0, -9.81 * ubo.dt) + ubo.speed * ubo.dt;
 
