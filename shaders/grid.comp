@@ -40,10 +40,10 @@ void main()
 	vClearGrid[i] = vec2(0);
 
 	// 3 outer node halos are boundaries so particles stay in particle block territory
-	bool left = x <= 8;
-	bool right = x >= ubo.dimensions - 8;
-	bool down = y <= 8;
-	bool up = y >= ubo.dimensions - 8;
+	bool left = x <= 5;
+	bool right = x >= ubo.dimensions - 5;
+	bool down = y <= 5;
+	bool up = y >= ubo.dimensions - 5;
 
 	vec2 acceleration = vec2(0, -9.81 * ubo.dt) + ubo.speed * ubo.dt;
 

@@ -19,24 +19,39 @@ layout(set = 0, std430, binding = BIND_M) writeonly buffer GridMassSSBOOut
 	float mGrid[];
 };
 
-layout(set = 0, std430, binding = BIND_H) writeonly buffer BlockHistogramSSBOOut
+layout(set = 0, std430, binding = BIND_HR) readonly buffer BlockHistogramSSBOIn
 {
-	uint histogram[];
+	uint hr[];
 };
 
-layout(set = 0, std430, binding = BIND_BC) readonly buffer BlockBinCountSSBOOut
+layout(set = 0, std430, binding = BIND_HW) writeonly buffer BlockHistogramSSBOOut
+{
+	uint hw[];
+};
+
+layout(set = 0, std430, binding = BIND_BCR) readonly buffer BlockBinCountSSBOIn
 {
 	uint blockBinCount[];
 };
 
-layout(set = 0, std430, binding = BIND_BO) readonly buffer BlockBinOffsetsSSBOOut
+layout(set = 0, std430, binding = BIND_BOR) readonly buffer BlockBinOffsetsSSBORead
 {
-    uint blockBinOffsets[];
+    uint blockBinOffsetsR[];
 };
 
-layout(set = 0, std430, binding = BIND_BR) buffer BinSSBOInOut
+layout(set = 0, std430, binding = BIND_BOS) readonly buffer BlockBinOffsetsSSBOScatter
 {
-	Bin bins[];
+    uint blockBinOffsetsScatter[];
+};
+
+layout(set = 0, std430, binding = BIND_BR) readonly buffer BinsInSBOIn
+{
+	Bin binsIn[];
+};
+
+layout(set = 0, std430, binding = BIND_BW) writeonly buffer BinSSBOOut
+{
+	Bin binsOut[];
 };
 
 layout(set = 0, std430, binding = BIND_MAT) buffer MaterialsSSBOIn
@@ -107,7 +122,8 @@ void main()
 	{
 		return;
 	}
-	uint baseBin = blockBinOffsets[particleBlockIndex];
+	// Doublebuffer binoffsets. This is the old binoffsets calculated two iterations ago (after g2p2g)
+	uint baseBin = blockBinOffsetsR[particleBlockIndex];
 
 	// Subblock x/y represent the subblock offsets determined by the bin
 	uint subblockIndex = pIndex;
@@ -129,14 +145,14 @@ void main()
 	for (uint binInBlock = 0; binInBlock < binCount; binInBlock++)
 	{
 		uint binIndex = baseBin + binInBlock;
-		float k = mats[bins[binIndex].materialId[pIndex]].k;
-		float mu = mats[bins[binIndex].materialId[pIndex]].mu;
-		float rho = mats[bins[binIndex].materialId[pIndex]].rho;
+		float k = mats[binsIn[binIndex].materialId[pIndex]].k;
+		float mu = mats[binsIn[binIndex].materialId[pIndex]].mu;
+		float rho = mats[binsIn[binIndex].materialId[pIndex]].rho;
 
-		uint binParticleCount = bins[binIndex].particleCount;
+		uint binParticleCount = binsIn[binIndex].particleCount;
 		if (pIndex < binParticleCount)
 		{
-			vec2 position = bins[binIndex].position[pIndex];
+			vec2 position = binsIn[binIndex].position[pIndex];
 			vec2 cellPosition = position * invDx;
 			ivec2 coords = ivec2(cellPosition - 0.5);
 			ivec2 coordsInBlock = coords - particleBlockCellCoords;
@@ -175,6 +191,8 @@ void main()
 					v01 + v11 + v21 + 
 					v02 + v12 + v22;
 
+			v = vec2(0.01, 0.01);
+
 			mat2 B = mat2(0);
 			B[0] = (v00 + v01 + v02) * dx0 +
 			 	(v10 + v11 + v12) * dx1 + 
@@ -187,17 +205,14 @@ void main()
 			float inv_D = 4.0 * invDx * invDx;
 			mat2 C = B * inv_D;
 
-			mat2 F = (mat2(1.0) + C * dt) * bins[binIndex].F[pIndex];
+			mat2 F = (mat2(1.0) + C * dt) * binsIn[binIndex].F[pIndex];
 
 			float J = determinant(F);
 
-			float mass = bins[binIndex].mass[pIndex];
+			float mass = binsIn[binIndex].mass[pIndex];
 
 			// 2 outer node halos are off limits so particles stay in particle block territory
 			position = clamp(position + dt * v, 4 * dx, (dimensions - 4) * dx);
-
-			bins[binIndex].F[pIndex] = F;
-			bins[binIndex].position[pIndex] = position;
 
 			cellPosition = position * invDx;
 			coords = ivec2(cellPosition - 0.5);
@@ -272,43 +287,63 @@ void main()
 			vec2 vm12 = w12 * (vm + ax1 + ay2);
 			vec2 vm22 = w22 * (vm + ax2 + ay2);
 
-			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0)].x, vm00.x);
-			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0)].y, vm00.y);
-			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 0)].x, vm10.x);
-			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 0)].y, vm10.y);
-			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 0)].x, vm20.x);
-			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 0)].y, vm20.y);
+			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0)].x, vm00.x);
+			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0)].y, vm00.y);
+			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 0)].x, vm10.x);
+			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 0)].y, vm10.y);
+			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 0)].x, vm20.x);
+			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 0)].y, vm20.y);
 
-			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 1)].x, vm01.x);
-			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 1)].y, vm01.y);
-			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 1)].x, vm11.x);
-			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 1)].y, vm11.y);
-			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 1)].x, vm21.x);
-			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 1)].y, vm21.y);
+			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 1)].x, vm01.x);
+			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 1)].y, vm01.y);
+			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 1)].x, vm11.x);
+			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 1)].y, vm11.y);
+			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 1)].x, vm21.x);
+			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 1)].y, vm21.y);
 
-			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 2)].x, vm02.x);
-			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 2)].y, vm02.y);
-			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 2)].x, vm12.x);
-			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 2)].y, vm12.y);
-			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 2)].x, vm22.x);
-			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 2)].y, vm22.y);
+			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 2)].x, vm02.x);
+			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 2)].y, vm02.y);
+			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 2)].x, vm12.x);
+			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 2)].y, vm12.y);
+			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 2)].x, vm22.x);
+			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 2)].y, vm22.y);
 
 
-			atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0)], mass * w00);
-			atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 0)], mass * w10);
-			atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 0)], mass * w20);
+			//atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0)], mass * w00);
+			//atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 0)], mass * w10);
+			//atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 0)], mass * w20);
 
-			atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 1)], mass * w01);
-			atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 1)], mass * w11);
-			atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 1)], mass * w21);
+			//atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 1)], mass * w01);
+			//atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 1)], mass * w11);
+			//atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 1)], mass * w21);
 
-			atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 2)], mass * w02);
-			atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 2)], mass * w12);
-			atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 2)], mass * w22);
+			//atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 2)], mass * w02);
+			//atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 2)], mass * w12);
+			//atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 2)], mass * w22);
 
 			uvec2 blockCoords = uvec2(cellPosition - 3.5) >> LOG2_G;
-			uint bIndex = atomicAdd(histogram[blockIndex(blockCoords.x, blockCoords.y)], 1);
-			bins[binIndex].blockParticleIndex[pIndex] = bIndex;
+			uint block = blockIndex(blockCoords.x, blockCoords.y);
+			
+			uint blockParticleIndex = binsIn[binIndex].blockParticleIndex[pIndex];
+			uint binInBlock = blockParticleIndex >> LOG2_BIN_SIZE;
+			uint particleInBlock = binInBlock << LOG2_BIN_SIZE;
+			uint nextPIndex = blockParticleIndex & BIN_MASK;
+			uint nextBaseBin = blockBinOffsetsScatter[block]; // Doublebuffer binoffsets. This is the new binoffsets (calculated last iteration after g2p2g)
+			uint nextBIndex = nextBaseBin + binInBlock;
+
+			binsOut[nextBIndex].F[nextPIndex] = F;
+			binsOut[nextBIndex].position[nextPIndex] = position;
+			binsOut[nextBIndex].mass[nextPIndex] = mass;
+			binsOut[nextBIndex].particleId[nextPIndex] = binsIn[binIndex].particleId[pIndex];
+			binsOut[nextBIndex].materialId[nextPIndex] = binsIn[binIndex].materialId[pIndex];
+			binsOut[nextBIndex].blockParticleIndex[nextPIndex] = atomicAdd(hw[block], 1); // The next bin particle index
+
+			if (nextPIndex == 0)
+			{
+				uint blockParticleCount = hr[block];
+				uint particlesLeft = min(blockParticleCount - particleInBlock, BIN_SIZE);
+				binsOut[nextBIndex].particleCount = particlesLeft;
+			}
 		}
 	}
 
@@ -330,7 +365,7 @@ void main()
 
 	//if (pIndex < binParticleCount)
 		//{
-		//	vec2 position = bins[binIndex].position[pIndex];
+		//	vec2 position = binsIn[binIndex].position[pIndex];
 		//	vec2 cellPosition = position * invDx;
 		//	ivec2 coords = ivec2(cellPosition);
 		//	ivec2 coordsInBlock = coords - gridBlockCellCoords;
@@ -374,17 +409,17 @@ void main()
 
 		//	mat2 C = B * inv_D;
 
-		//	mat2 F = (mat2(1.0) + C * dt) * bins[binIndex].F[pIndex];
+		//	mat2 F = (mat2(1.0) + C * dt) * binsIn[binIndex].F[pIndex];
 
 		//	float J = determinant(F);
 
-		//	float mass = bins[binIndex].mass[pIndex];
+		//	float mass = binsIn[binIndex].mass[pIndex];
 
 		//	// 2 outer node halos are off limits so particles stay in particle block territory
 		//	position = clamp(position + dt * v, 3 * dx, (dimensions - 3) * dx);
 
-		//	bins[binIndex].F[pIndex] = F;
-		//	bins[binIndex].position[pIndex] = position;
+		//	binsIn[binIndex].F[pIndex] = F;
+		//	binsIn[binIndex].position[pIndex] = position;
 
 		//	cellPosition = position * invDx;
 		//	coords = ivec2(cellPosition);
@@ -452,5 +487,5 @@ void main()
 
 		//	uvec2 blockCoords = uvec2(cellPosition - 3.5) >> LOG2_G;
 		//	uint bIndex = atomicAdd(histogram[blockIndex(blockCoords.x, blockCoords.y)], 1);
-		//	bins[binIndex].blockParticleIndex[pIndex] = bIndex;
+		//	binsIn[binIndex].blockParticleIndex[pIndex] = bIndex;
 		//}

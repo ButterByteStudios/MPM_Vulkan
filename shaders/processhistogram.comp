@@ -5,17 +5,17 @@
 
 #define BIN_COUNT (16)
 
-layout(set = 0, std430, binding = BIND_H) readonly buffer BlockHistogramSSBO
+layout(set = 0, std430, binding = BIND_HW) readonly buffer BlockHistogramSSBO
 {
 	uint histogram[];
 };
 
-layout(set = 0, std430, binding = BIND_BC) writeonly buffer BlockBinCountSSBOOut
+layout(set = 0, std430, binding = BIND_BCW) writeonly buffer BlockBinCountSSBOOut
 {
 	uint blockBinCount[];
 };
 
-layout(set = 0, std430, binding = BIND_BO) writeonly buffer BlockBinOffsetsSSBOOut
+layout(set = 0, std430, binding = BIND_BOR) writeonly buffer BlockBinOffsetsSSBOOut
 {
     uint blockBinOffsets[];
 };
