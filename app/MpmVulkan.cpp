@@ -340,13 +340,13 @@ private:
 	float sensitivity = 0.002f;
 	float scrollSensitivity = 0.05f;
 
-	float E = 10000;
+	float E = 100000;
 	float v = 0.45f;
 	float rho = 2000;
 	float dx = 1.0f / dimensions;
 	float dt = 0.00010f;
 	float size = 0.2f;
-	uint32_t substeps = 1;
+	uint32_t substeps = 5;
 	glm::vec2 cameraPos = glm::vec2(0);
 	float zoom = 1;
 	glm::vec2 accel = glm::vec2(0);
@@ -1766,6 +1766,19 @@ private:
 				0, nullptr
 			);
 
+			// Theres no dependency between particle reordering and grid so change the positioning
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, gridComputePipeline);
+			vkCmdDispatch(commandBuffer, ceilIntDivision(dimensions, GRID_KERNEL_SIZE), ceilIntDivision(dimensions, GRID_KERNEL_SIZE), 1);
+
+			vkCmdPipelineBarrier(commandBuffer,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+				0,
+				1, &computeToIndirectBarrier,
+				0, nullptr,
+				0, nullptr
+			);
+
 			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, processhistogramComputePipeline);
 			vkCmdDispatch(commandBuffer, ceilIntDivision(paddedParticleBlockDimensions, BLOCK_KERNEL_SIZE), ceilIntDivision(paddedParticleBlockDimensions, BLOCK_KERNEL_SIZE), 1);
 
@@ -1848,19 +1861,6 @@ private:
 				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 				0,
 				1, &computeToComputeBarrier,
-				0, nullptr,
-				0, nullptr
-			);
-
-			// Theres no dependency between particle reordering and grid so change the positioning
-			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, gridComputePipeline);
-			vkCmdDispatch(commandBuffer, ceilIntDivision(dimensions, GRID_KERNEL_SIZE), ceilIntDivision(dimensions, GRID_KERNEL_SIZE), 1);
-
-			vkCmdPipelineBarrier(commandBuffer,
-				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
-				0,
-				1, &computeToIndirectBarrier,
 				0, nullptr,
 				0, nullptr
 			);
