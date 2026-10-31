@@ -155,6 +155,8 @@ void main()
 			vec2 position = binsIn[binIndex].position[pIndex];
 			vec2 cellPosition = position * invDx;
 			ivec2 coords = ivec2(cellPosition - 0.5);
+			uvec2 oldBlockCoords = uvec2(cellPosition - 3.5) >> LOG2_G;
+			uint oldBlock = blockIndex(oldBlockCoords.x, oldBlockCoords.y);
 			ivec2 coordsInBlock = coords - particleBlockCellCoords;
 			
 			vec2 d = coords - cellPosition;
@@ -191,7 +193,7 @@ void main()
 					v01 + v11 + v21 + 
 					v02 + v12 + v22;
 
-			v = vec2(0.01, 0.01);
+			v = vec2(50, 50);
 
 			mat2 B = mat2(0);
 			B[0] = (v00 + v01 + v02) * dx0 +
@@ -322,13 +324,13 @@ void main()
 			//atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 2)], mass * w22);
 
 			uvec2 blockCoords = uvec2(cellPosition - 3.5) >> LOG2_G;
-			uint block = blockIndex(blockCoords.x, blockCoords.y);
+			uint newBlock = blockIndex(blockCoords.x, blockCoords.y);
 			
 			uint blockParticleIndex = binsIn[binIndex].blockParticleIndex[pIndex];
 			uint binInBlock = blockParticleIndex >> LOG2_BIN_SIZE;
 			uint particleInBlock = binInBlock << LOG2_BIN_SIZE;
 			uint nextPIndex = blockParticleIndex & BIN_MASK;
-			uint nextBaseBin = blockBinOffsetsScatter[block]; // Doublebuffer binoffsets. This is the new binoffsets (calculated last iteration after g2p2g)
+			uint nextBaseBin = blockBinOffsetsScatter[oldBlock]; // Doublebuffer binoffsets. This is the new binoffsets (calculated last iteration after g2p2g)
 			uint nextBIndex = nextBaseBin + binInBlock;
 
 			binsOut[nextBIndex].F[nextPIndex] = F;
@@ -336,11 +338,11 @@ void main()
 			binsOut[nextBIndex].mass[nextPIndex] = mass;
 			binsOut[nextBIndex].particleId[nextPIndex] = binsIn[binIndex].particleId[pIndex];
 			binsOut[nextBIndex].materialId[nextPIndex] = binsIn[binIndex].materialId[pIndex];
-			binsOut[nextBIndex].blockParticleIndex[nextPIndex] = atomicAdd(hw[block], 1); // The next bin particle index
+			binsOut[nextBIndex].blockParticleIndex[nextPIndex] = atomicAdd(hw[newBlock], 1); // The next bin particle index
 
 			if (nextPIndex == 0)
 			{
-				uint blockParticleCount = hr[block];
+				uint blockParticleCount = hr[oldBlock];
 				uint particlesLeft = min(blockParticleCount - particleInBlock, BIN_SIZE);
 				binsOut[nextBIndex].particleCount = particlesLeft;
 			}

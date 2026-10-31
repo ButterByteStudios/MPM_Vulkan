@@ -1240,7 +1240,7 @@ private:
 			std::array<VkWriteDescriptorSet, 14> descriptorWrites{};
 
 			VkDescriptorBufferInfo vBufferReadInfo{};
-			vBufferReadInfo.buffer = vBuffers[(i + 2 - 1) % 2].buffer;
+			vBufferReadInfo.buffer = vBuffers[i].buffer;
 			vBufferReadInfo.offset = 0;
 			vBufferReadInfo.range = sizeof(glm::vec2) * dimensions * dimensions;
 
@@ -1254,7 +1254,7 @@ private:
 			descriptorWrites[binding].pBufferInfo = &vBufferReadInfo;
 
 			VkDescriptorBufferInfo vBufferWriteInfo{};
-			vBufferWriteInfo.buffer = vBuffers[i].buffer;
+			vBufferWriteInfo.buffer = vBuffers[(i + 1) % 2].buffer;
 			vBufferWriteInfo.offset = 0;
 			vBufferWriteInfo.range = sizeof(glm::vec2) * dimensions * dimensions;
 
@@ -1296,7 +1296,7 @@ private:
 			descriptorWrites[binding].pBufferInfo = &histogramBufferReadInfo;
 
 			VkDescriptorBufferInfo binCountBufferReadInfo{};
-			binCountBufferReadInfo.buffer = binCountBuffers[(i + 1) % 2].buffer;
+			binCountBufferReadInfo.buffer = binCountBuffers[i].buffer;
 			binCountBufferReadInfo.offset = 0;
 			binCountBufferReadInfo.range = sizeof(uint32_t) * paddedParticleBlockCount;
 
@@ -1310,7 +1310,7 @@ private:
 			descriptorWrites[binding].pBufferInfo = &binCountBufferReadInfo;
 
 			VkDescriptorBufferInfo binOffsetsReadBufferInfo{};
-			binOffsetsReadBufferInfo.buffer = binOffsetsBuffers[(i + 1) % 2].buffer;
+			binOffsetsReadBufferInfo.buffer = binOffsetsBuffers[i].buffer;
 			binOffsetsReadBufferInfo.offset = 0;
 			binOffsetsReadBufferInfo.range = sizeof(uint32_t) * paddedParticleBlockCount;
 
@@ -1338,7 +1338,7 @@ private:
 			descriptorWrites[binding].pBufferInfo = &binSumBufferInfo;
 
 			VkDescriptorBufferInfo binBufferReadInfo{};
-			binBufferReadInfo.buffer = binBuffers[(i + 1) % 2].buffer;
+			binBufferReadInfo.buffer = binBuffers[i].buffer;
 			binBufferReadInfo.offset = 0;
 			binBufferReadInfo.range = sizeof(Bin) * binCount;
 
@@ -1352,7 +1352,7 @@ private:
 			descriptorWrites[binding].pBufferInfo = &binBufferReadInfo;
 
 			VkDescriptorBufferInfo BinBufferWriteInfo{};
-			BinBufferWriteInfo.buffer = binBuffers[i].buffer;
+			BinBufferWriteInfo.buffer = binBuffers[(i + 1) % 2].buffer;
 			BinBufferWriteInfo.offset = 0;
 			BinBufferWriteInfo.range = sizeof(Bin) * binCount;
 
@@ -1408,7 +1408,7 @@ private:
 			descriptorWrites[binding].pBufferInfo = &histogramBufferWriteInfo;
 
 			VkDescriptorBufferInfo binOffsetsScatterBufferInfo{};
-			binOffsetsScatterBufferInfo.buffer = binOffsetsBuffers[i].buffer;
+			binOffsetsScatterBufferInfo.buffer = binOffsetsBuffers[(i + 1) % 2].buffer;
 			binOffsetsScatterBufferInfo.offset = 0;
 			binOffsetsScatterBufferInfo.range = sizeof(uint32_t) * paddedParticleBlockCount;
 
@@ -1422,7 +1422,7 @@ private:
 			descriptorWrites[binding].pBufferInfo = &binOffsetsScatterBufferInfo;
 
 			VkDescriptorBufferInfo binCountBufferWriteInfo{};
-			binCountBufferWriteInfo.buffer = binCountBuffers[i].buffer;
+			binCountBufferWriteInfo.buffer = binCountBuffers[(i + 1) % 2].buffer;
 			binCountBufferWriteInfo.offset = 0;
 			binCountBufferWriteInfo.range = sizeof(uint32_t) * paddedParticleBlockCount;
 
@@ -2002,7 +2002,7 @@ private:
 			glm::vec2 cellPos = glm::vec2(x, y);
 			glm::vec2 pos = cellPos * dx;
 			glm::ivec2 coords = glm::ivec2(glm::floor(cellPos - 3.5f));
-			glm::ivec2 blockCoords = coords / 4;
+			glm::ivec2 blockCoords = coords >> 2;
 			uint32_t blockIndex = blockCoords.x + blockCoords.y * particleBlockDimensions;
 
 			blockIndices[i] = blockIndex;

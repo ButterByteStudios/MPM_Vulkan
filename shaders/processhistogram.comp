@@ -10,7 +10,7 @@ layout(set = 0, std430, binding = BIND_HW) readonly buffer BlockHistogramSSBO
 	uint histogram[];
 };
 
-layout(set = 0, std430, binding = BIND_BCW) writeonly buffer BlockBinCountSSBOOut
+layout(set = 0, std430, binding = BIND_BCR) writeonly buffer BlockBinCountSSBOOut
 {
 	uint blockBinCount[];
 };
