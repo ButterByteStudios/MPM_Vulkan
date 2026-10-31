@@ -193,8 +193,6 @@ void main()
 					v01 + v11 + v21 + 
 					v02 + v12 + v22;
 
-			v = vec2(50, 50);
-
 			mat2 B = mat2(0);
 			B[0] = (v00 + v01 + v02) * dx0 +
 			 	(v10 + v11 + v12) * dx1 + 
@@ -289,39 +287,39 @@ void main()
 			vec2 vm12 = w12 * (vm + ax1 + ay2);
 			vec2 vm22 = w22 * (vm + ax2 + ay2);
 
-			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0)].x, vm00.x);
-			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0)].y, vm00.y);
-			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 0)].x, vm10.x);
-			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 0)].y, vm10.y);
-			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 0)].x, vm20.x);
-			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 0)].y, vm20.y);
+			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0)].x, vm00.x);
+			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0)].y, vm00.y);
+			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 0)].x, vm10.x);
+			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 0)].y, vm10.y);
+			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 0)].x, vm20.x);
+			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 0)].y, vm20.y);
 
-			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 1)].x, vm01.x);
-			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 1)].y, vm01.y);
-			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 1)].x, vm11.x);
-			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 1)].y, vm11.y);
-			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 1)].x, vm21.x);
-			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 1)].y, vm21.y);
+			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 1)].x, vm01.x);
+			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 1)].y, vm01.y);
+			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 1)].x, vm11.x);
+			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 1)].y, vm11.y);
+			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 1)].x, vm21.x);
+			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 1)].y, vm21.y);
 
-			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 2)].x, vm02.x);
-			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 2)].y, vm02.y);
-			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 2)].x, vm12.x);
-			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 2)].y, vm12.y);
-			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 2)].x, vm22.x);
-			//atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 2)].y, vm22.y);
+			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 2)].x, vm02.x);
+			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 2)].y, vm02.y);
+			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 2)].x, vm12.x);
+			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 2)].y, vm12.y);
+			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 2)].x, vm22.x);
+			atomicAdd(shVWGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 2)].y, vm22.y);
 
 
-			//atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0)], mass * w00);
-			//atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 0)], mass * w10);
-			//atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 0)], mass * w20);
+			atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0)], mass * w00);
+			atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 0)], mass * w10);
+			atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 0)], mass * w20);
 
-			//atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 1)], mass * w01);
-			//atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 1)], mass * w11);
-			//atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 1)], mass * w21);
+			atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 1)], mass * w01);
+			atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 1)], mass * w11);
+			atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 1)], mass * w21);
 
-			//atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 2)], mass * w02);
-			//atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 2)], mass * w12);
-			//atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 2)], mass * w22);
+			atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 0, coordsInBlock.y + 2)], mass * w02);
+			atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 1, coordsInBlock.y + 2)], mass * w12);
+			atomicAdd(shMGrid[getSubblockIndex(coordsInBlock.x + 2, coordsInBlock.y + 2)], mass * w22);
 
 			uvec2 blockCoords = uvec2(cellPosition - 3.5) >> LOG2_G;
 			uint newBlock = blockIndex(blockCoords.x, blockCoords.y);
