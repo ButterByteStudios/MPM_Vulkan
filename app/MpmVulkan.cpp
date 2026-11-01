@@ -36,7 +36,7 @@
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 800;
 const uint32_t MAX_FRAMES_IN_FLIGHT = 2;
-const uint32_t PARTICLE_COUNT = 1 << 17;
+const uint32_t PARTICLE_COUNT = 1 << 19;
 const uint32_t BIN_KERNEL_SIZE = 1;
 const uint32_t GRID_KERNEL_SIZE = 32;
 const uint32_t BLOCK_KERNEL_SIZE = 16;
@@ -340,13 +340,13 @@ private:
 	float sensitivity = 0.002f;
 	float scrollSensitivity = 0.05f;
 
-	float E = 100000;
-	float v = 0.45f;
-	float rho = 2000;
+	float E = 1000000;
+	float v = 0.40f;
+	float rho = 1000;
 	float dx = 1.0f / dimensions;
 	float dt = 0.00010f;
-	float size = 0.2f;
-	uint32_t substeps = 5;
+	float size = 0.5f;
+	uint32_t substeps = 20;
 	glm::vec2 cameraPos = glm::vec2(0);
 	float zoom = 1;
 	glm::vec2 accel = glm::vec2(0);

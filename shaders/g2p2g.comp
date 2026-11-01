@@ -261,7 +261,7 @@ void main()
 			float volume = mass / rho;
 			float currentVolume = volume * J;
 			
-			mat2 stress = dt * -volume * cauchy * inv_D;
+			mat2 stress = dt * -currentVolume * cauchy * inv_D;
 			mat2 affine = stress + mass * C;
 
 			vec2 vm = v * mass;
