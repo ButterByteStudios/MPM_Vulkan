@@ -35,8 +35,8 @@
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 800;
-const uint32_t MAX_FRAMES_IN_FLIGHT = 3;
-const uint32_t PARTICLE_COUNT = 1 << 17;
+const uint32_t MAX_FRAMES_IN_FLIGHT = 2;
+const uint32_t PARTICLE_COUNT = 1 << 14;
 const uint32_t BIN_KERNEL_SIZE = 1;
 const uint32_t GRID_KERNEL_SIZE = 32;
 const uint32_t BLOCK_KERNEL_SIZE = 16;
@@ -326,7 +326,8 @@ private:
 	std::vector<val::AllocatedBuffer> cameraBuffers;
 	val::AllocatedBuffer interactionBuffer; // Stores spawn/delete information
 
-	uint32_t dimensions = 128;
+	uint32_t dimensions = 32;
+	uint32_t nodeCount = dimensions * dimensions;
 	uint32_t gridBlockDimensions = dimensions / 4;
 	uint32_t particleBlockDimensions = gridBlockDimensions - 1;
 	uint32_t paddedParticleBlockDimensions = glm::exp2(glm::ceil(glm::log2(static_cast<float>(gridBlockDimensions))));
@@ -341,12 +342,12 @@ private:
 	float sensitivity = 0.002f;
 	float scrollSensitivity = 0.05f;
 
-	float E = 10000;
-	float v = 0.45f;
-	float rho = 2000;
+	float E = 100000;
+	float v = 0.40f;
+	float rho = 1000;
 	float dx = 1.0f / dimensions;
-	float dt = 0.00010f;
-	float size = 0.2f;
+	float dt = 0.0001f;
+	float size = 0.5f;
 	uint32_t substeps = 15;
 	glm::vec2 cameraPos = glm::vec2(0);
 	float zoom = 1;
@@ -1240,7 +1241,7 @@ private:
 			VkDescriptorBufferInfo vBufferReadInfo{};
 			vBufferReadInfo.buffer = vBuffers[(i + 2 - 1) % 2].buffer;
 			vBufferReadInfo.offset = 0;
-			vBufferReadInfo.range = sizeof(glm::vec2) * dimensions * dimensions;
+			vBufferReadInfo.range = sizeof(glm::vec2) * nodeCount;
 
 			binding = 0;
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1254,7 +1255,7 @@ private:
 			VkDescriptorBufferInfo vBufferWriteInfo{};
 			vBufferWriteInfo.buffer = vBuffers[i].buffer;
 			vBufferWriteInfo.offset = 0;
-			vBufferWriteInfo.range = sizeof(glm::vec2) * dimensions * dimensions;
+			vBufferWriteInfo.range = sizeof(glm::vec2) * nodeCount;
 
 			binding = 1;
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1268,7 +1269,7 @@ private:
 			VkDescriptorBufferInfo mBufferWriteInfo{};
 			mBufferWriteInfo.buffer = mBuffer.buffer;
 			mBufferWriteInfo.offset = 0;
-			mBufferWriteInfo.range = sizeof(float) * dimensions * dimensions;
+			mBufferWriteInfo.range = sizeof(float) * nodeCount;
 
 			binding = 2;
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1721,6 +1722,9 @@ private:
 				0, nullptr
 			);
 
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, gridComputePipeline);
+			vkCmdDispatch(commandBuffer, ceilIntDivision(dimensions, GRID_KERNEL_SIZE), ceilIntDivision(dimensions, GRID_KERNEL_SIZE), 1);
+
 			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, processhistogramComputePipeline);
 			vkCmdDispatch(commandBuffer, ceilIntDivision(paddedParticleBlockDimensions, BLOCK_KERNEL_SIZE), ceilIntDivision(paddedParticleBlockDimensions, BLOCK_KERNEL_SIZE), 1);
 
@@ -1797,19 +1801,6 @@ private:
 
 			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, clearhistogramComputePipeline);
 			vkCmdDispatch(commandBuffer, ceilIntDivision(paddedParticleBlockCount, (BLOCK_KERNEL_SIZE * BLOCK_KERNEL_SIZE)), 1, 1);
-
-			vkCmdPipelineBarrier(commandBuffer,
-				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-				0,
-				1, &computeToComputeBarrier,
-				0, nullptr,
-				0, nullptr
-			);
-
-			// Theres no dependency between particle reordering and grid so change the positioning
-			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, gridComputePipeline);
-			vkCmdDispatch(commandBuffer, ceilIntDivision(dimensions, GRID_KERNEL_SIZE), ceilIntDivision(dimensions, GRID_KERNEL_SIZE), 1);
 
 			vkCmdPipelineBarrier(commandBuffer,
 				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -1932,7 +1923,7 @@ private:
 		std::default_random_engine rndEngine((unsigned)2u);
 		std::uniform_real_distribution<float> rndDist(0.0f, 1.0f);
 
-		uint32_t cells = dimensions * dimensions;
+		uint32_t cells = nodeCount;
 
 		std::vector<uint32_t> histogram(paddedParticleBlockCount);
 		std::vector<Particle> particles(PARTICLE_COUNT);

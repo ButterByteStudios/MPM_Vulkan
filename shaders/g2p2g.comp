@@ -66,12 +66,17 @@ float qw2(float x)
 #define LOG2_G (2)
 #define G_MASK (G - 1)
 #define G2 (G * G)
-#define GBlockDimensions (G + 2 + 2) // Will be G + 3 + 3 for the delayed scatter
+#define GBlockDimensions (G + 2 + 2)
 #define GBlock (GBlockDimensions * GBlockDimensions)
+
+const uint mortonLUT[4] = {
+    0x00, 0x10, 0x40, 0x50
+};
 
 uint gridSubblockBlockIndex(uint x, uint y)
 {
-	return x * GBlockDimensions + y;
+	uint perserve = (x & 0x03) | ((y & 0x03) << 2);
+    return mortonLUT[x >> 2] | (mortonLUT[y >> 2] << 1) | perserve;
 }
 
 layout(local_size_x = BIN_SIZE, local_size_y = 1, local_size_z = 1) in;
@@ -110,20 +115,13 @@ void main()
 	uint baseBin = blockBinOffsets[block];
 
 	// Subblock x/y represent the subblock offsets determined by the bin
-	uint subblockIndex = pIndex >> 4;
+	uint subblockIndex = pIndex >> 4; // pIndex / 16
 	uint subblockCellX = (subblockIndex & 1) * G;
 	uint subblockCellY = (subblockIndex >> 1) * G;
 	uint localIndex = pIndex & 15u; // pIndex % 16
 
-	// Local x and local y are ordered like this due to the collumn major ordering of the gridblocks in the partial morton
-	uint blockLocalX = localIndex >> LOG2_G; 
-	uint blockLocalY = localIndex & G_MASK;
-
-	uint blockX = blockLocalX + subblockCellX;
-	uint blockY = blockLocalY + subblockCellY;
-
-	uint gridSubblockCellIndex = partialMorton(gridBlockCellCoords.x + subblockCellX, gridBlockCellCoords.y + subblockCellY) + localIndex;
-	uint localSubblockIndex = gridSubblockBlockIndex(blockX, blockY);
+	uint gridSubblockCellIndex = lossyMorton(gridBlockCellCoords.x + subblockCellX, gridBlockCellCoords.y + subblockCellY) + localIndex;
+	uint localSubblockIndex = pIndex;
 
 	shVRGrid[localSubblockIndex] = vRGrid[gridSubblockCellIndex];
 	shVWGrid[localSubblockIndex] = vec2(0);
@@ -245,7 +243,7 @@ void main()
 			float volume = mass / rho;
 			float currentVolume = volume * J;
 			
-			mat2 stress = dt * -volume * cauchy * inv_D;
+			mat2 stress = dt * -currentVolume * cauchy * inv_D;
 			mat2 affine = stress + mass * C;
 
 			vec2 vm = v * mass;

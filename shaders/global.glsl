@@ -75,7 +75,12 @@ uint morton(uint x, uint y)
 
 uint partialMorton(uint x, uint y)
 {
-	uint perserve = (((x & 0x3) << 2) | (y & 0x3));
+	uint perserve = (((x & 0x3)) | ((y & 0x3) << 2));
 	
-	return (((part1by1(x) << 1) | part1by1(y)) & 0xFFFFFFF0) | perserve;
+	return (((part1by1(x)) | (part1by1(y) << 1)) & 0xFFFFFFF0) | perserve;
+}
+
+uint lossyMorton(uint x, uint y)
+{
+	return (((part1by1(x)) | (part1by1(y) << 1)) & 0xFFFFFFF0);
 }
