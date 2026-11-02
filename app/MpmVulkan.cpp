@@ -101,6 +101,20 @@ struct alignas(4) MaterialLayout
 	float k;
 	float mu;
 	float rho;
+
+	MaterialLayout(float E, float v, float rho)
+	{
+		this->k = E / (3.0 - 6.0 * v);
+		this->mu = E / (2.0 + 2.0 * v);
+		this->rho = rho;
+	}
+
+	MaterialLayout()
+	{
+		this->k = 0;
+		this->mu = 0;
+		this->rho = 0;
+	}
 };
 
 struct ScatterDispatchData
@@ -305,6 +319,8 @@ private:
 	uint32_t currentFrame = 0;
 	uint32_t currentCompute = 0;
 
+	std::vector<MaterialLayout> materialStats; // Create a materialsManager for this stuff. Materials stay on their index (so when materials get deleted particles dont need to change index). Materials get added in empty slots or at the end
+
 	val::VulkanAllocator bufferAllocator;
 
 	std::vector<val::AllocatedBuffer> binBuffers; // Scatter requires a seperate read and write buffer to prevent race conditions
@@ -315,7 +331,8 @@ private:
 	val::AllocatedBuffer binCountBuffer;
 	val::AllocatedBuffer binOffsetsBuffer;
 	val::AllocatedBuffer binSumBuffer;
-	val::AllocatedBuffer materialsBuffer;
+	val::AllocatedBuffer materialsBuffer; // add a framesinflight amount of material buffers in case it gets used in rendering
+	val::AllocatedBuffer materialStagingBuffer;
 	// If spawning happends, add another compute shader after g2p2g which spawns Particles into this buffer and atomically adds to the counters
 	// After the scatter, run another compute shader to add the spawned particles
 	val::AllocatedBuffer spawnBuffer; 
@@ -337,6 +354,7 @@ private:
 
 	double lastTime = 0;
 	double lastFrameTime = 0;
+	bool dirtyMaterials = false;
 
 	glm::vec2 lastMousePos = glm::vec2(0);
 	float sensitivity = 0.002f;
@@ -365,44 +383,7 @@ private:
 			int width, height;
 			glfwGetFramebufferSize(window, &width, &height);
 
-			ImGui_ImplVulkan_NewFrame();
-			ImGui_ImplGlfw_NewFrame();
-
-			ImGui::NewFrame();
-
-			ImGui::Begin("Materials demo");                          
-
-			static std::vector<MaterialNode> items = { MaterialNode(0) };
-			static int selectedIndex = -1;
-			if (ImGui::BeginListBox("##00"))
-			{
-				for (int n = 0; n < static_cast<uint32_t>(items.size()); n++)
-				{
-					ImGui::PushID(n);
-					if (items[n].renderNode())
-					{
-						selectedIndex = n;
-					}
-
-					ImGui::PopID();
-				}
-
-				ImGui::EndListBox();
-			}
-
-			if (static_cast<uint32_t>(items.size()) < maxMaterialCount && ImGui::Button("Add"))
-				items.push_back(MaterialNode(static_cast<uint32_t>(items.size())));
-
-			ImGui::SameLine();
-
-			if (selectedIndex != -1 && static_cast<uint32_t>(items.size()) > 1 && ImGui::Button("Remove"))
-			{
-				items.erase(items.begin() + selectedIndex);
-				selectedIndex = -1;
-			}
-
-			ImGui::End();
-
+			renderMaterialGui();
 
 			ImGuiIO& io = ImGui::GetIO();
 
@@ -501,6 +482,56 @@ private:
 		initInfo.PipelineInfoMain = pipelineInfo;
 
 		ImGui_ImplVulkan_Init(&initInfo);
+	}
+
+	void renderMaterialGui()
+	{
+		ImGui_ImplVulkan_NewFrame();
+		ImGui_ImplGlfw_NewFrame();
+
+		ImGui::NewFrame();
+
+		ImGui::Begin("Materials demo");
+
+		static std::vector<MaterialNode> items = { MaterialNode(0, this->E, this->v, this->rho) };
+		static int selectedIndex = -1;
+		if (ImGui::BeginListBox("##00"))
+		{
+			for (int n = 0; n < static_cast<uint32_t>(items.size()); n++)
+			{
+				ImGui::PushID(n);
+				if (items[n].renderNode())
+				{
+					// Update materials
+					MaterialLayout mat = MaterialLayout(items[n].mat.E, items[n].mat.v, items[n].mat.rho);
+					materialStats[n] = mat;
+					dirtyMaterials = true;
+				}
+
+				ImGui::PopID();
+			}
+
+			ImGui::EndListBox();
+		}
+
+		if (static_cast<uint32_t>(items.size()) < maxMaterialCount && ImGui::Button("Add"))
+			items.push_back(MaterialNode(static_cast<uint32_t>(items.size()), this->E, this->v, this->rho));
+
+		//ImGui::SameLine();
+
+		// Removing materials is weird because particles would need to be deleted
+		//if (selectedIndex != -1 && static_cast<uint32_t>(items.size()) > 1 && ImGui::Button("Remove"))
+		//{
+		//	items.erase(items.begin() + selectedIndex);
+		//	selectedIndex = -1;
+		//}
+
+		ImGui::End();
+
+		if (dirtyMaterials)
+		{
+			memcpy(materialStagingBuffer.mapped, materialStats.data(), sizeof(MaterialLayout) * maxMaterialCount);
+		}
 	}
 
 	void createInstance()
@@ -1704,6 +1735,31 @@ private:
 		computeToIndirectBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
 		computeToIndirectBarrier.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
 
+		VkMemoryBarrier transferToComputeBarrier{};
+		transferToComputeBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+		transferToComputeBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+		transferToComputeBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+		if (dirtyMaterials)
+		{
+			dirtyMaterials = false;
+
+			VkBufferCopy copyRegion{};
+			copyRegion.srcOffset = 0;
+			copyRegion.dstOffset = 0;
+			copyRegion.size = sizeof(MaterialLayout) * maxMaterialCount;
+			vkCmdCopyBuffer(commandBuffer, materialStagingBuffer.buffer, materialsBuffer.buffer, 1, &copyRegion);
+
+			vkCmdPipelineBarrier(commandBuffer,
+				VK_PIPELINE_STAGE_TRANSFER_BIT,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				0,
+				1, &transferToComputeBarrier,
+				0, nullptr,
+				0, nullptr
+			);
+		}
+
 		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 1, 1, &transferDescriptorSets[currentFrame], 0, nullptr);
 
 		for (uint32_t i = 0; i < substeps; i++)
@@ -2158,10 +2214,7 @@ private:
 
 		// Materials
 		bufferSize = sizeof(MaterialLayout) * maxMaterialCount;
-		MaterialLayout materialData{};
-		materialData.k = E / (3.0 - 6.0 * this->v);
-		materialData.mu = E / (2.0 + 2.0 * this->v);
-		materialData.rho = 2000;
+		MaterialLayout materialData(this->E, this->v, this->rho);
 
 		stagingBuffer = createStagingBuffer(bufferSize);
 		memcpy(stagingBuffer.mapped, &materialData, sizeof(MaterialLayout));
@@ -2175,6 +2228,22 @@ private:
 		copyBuffer(stagingBuffer.buffer, materialsBuffer.buffer, bufferSize);
 
 		stagingBuffer.dispose();
+		//
+		
+		// Staging buffer for materials
+		bufferSize = sizeof(MaterialLayout) * maxMaterialCount;
+		
+		materialStagingBuffer = bufferAllocator.create({
+			bufferSize,
+			val::BufferUsage::Staging,
+			val::BufferLifetime::Static
+			});
+		//
+		
+		// Materials initialization
+		materialStats.resize(maxMaterialCount);
+		materialStats[0] = materialData;
+		//
 		
 		// Maybe create seperate transferqueue?
 		vkQueueWaitIdle(graphicsQueue);
@@ -2610,6 +2679,7 @@ private:
 		binSumBuffer.dispose();
 		scatterIndirectDispatchBuffer.dispose();
 		materialsBuffer.dispose();
+		materialStagingBuffer.dispose();
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{

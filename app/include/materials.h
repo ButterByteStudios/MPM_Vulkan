@@ -12,13 +12,21 @@ public:
 class MaterialNode
 {
 public:
-	MaterialNode(uint32_t id);
+	MaterialNode(uint32_t id, float E, float v, float rho);
 
 	bool renderNode();
 
-private:
 	Material mat;
+private:
 	std::string name;
 	char buf[255]{};
 	uint32_t id;
 };
+
+//class MaterialsManager
+//{
+//public:
+//	bool isDirty();
+//
+//	void updateMaterial();
+//};
