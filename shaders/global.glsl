@@ -26,6 +26,7 @@ struct Bin
 	mat2[BIN_SIZE] F;
 	vec2[BIN_SIZE] position;
 	float[BIN_SIZE] mass;
+	float[BIN_SIZE] hardening;
 	uint[BIN_SIZE] blockParticleIndex;
 	uint[BIN_SIZE] particleId;
 	uint[BIN_SIZE] materialId;

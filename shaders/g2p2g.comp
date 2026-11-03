@@ -120,7 +120,7 @@ void naccProject(
     out mat2 tau
 )
 {
-    mat2 I = mat2(1.0f);
+    mat2 I = mat2(1.0);
 
     // 1. Elastic trial state
     mat2 b = Fe_trial * transpose(Fe_trial);
@@ -131,7 +131,7 @@ void naccProject(
 
     mat2 devB = b - 0.5f * trB * I;
 
-    float p = -0.5f * k * (J * J - 1.0f);
+    float p = -0.5f * k * (J * J - 1.0);
 
     mat2 s = (mu / J) * devB;
 
@@ -140,23 +140,23 @@ void naccProject(
         dot(s[1], s[1])
     );
 
-    float q = sqrt(2.0f) * sNorm;
+    float q = sqrt(2.0) * sNorm;
 
     // 2. Initial yield surface
-    float p0 = k * sinh(xi * max(-alpha, 0.0f));
+    float p0 = k * sinh(xi * max(-alpha, 0.0));
 
     // 3. SVD of trial elastic deformation
     mat2 U, V;
     vec2 sigma;
 
-    SVD_FullDecompose(Fe_trial, U, sigma, V);
+    svd(Fe_trial, U, sigma, V);
 
     // 4. Case 1: Maximum pressure tip
-    if (p > p0)
+    if (p >= p0)
     {
         p = p0;
 
-        float Je = sqrt(1.0f - 2.0f * p / k);
+        float Je = sqrt(1.0 - 2.0 * p / k);
 
         alpha += log(J / Je);
 
@@ -170,11 +170,11 @@ void naccProject(
     }
 
     // 5. Case 2: Minimum pressure tip
-    if (p < -beta * p0)
+    if (p <= -beta * p0)
     {
         p = -beta * p0;
 
-        float Je = sqrt(1.0f - 2.0f * p / k);
+        float Je = sqrt(1.0 - 2.0 * p / k);
 
         alpha += log(J / Je);
 
@@ -189,10 +189,10 @@ void naccProject(
 
     // 6. Yield test
     float yield =
-        (1.0f + 2.0f * beta) * q * q
+        (1.0 + 2.0 * beta) * q * q
         + M * M * (p + beta * p0) * (p - p0);
 
-    if (yield < 0.0001f)
+    if (yield < 0.0001)
     {
         tau = s - p * I;
 
@@ -204,15 +204,15 @@ void naccProject(
     // New shear magnitude
     float qNew = M * sqrt(
         -(p + beta * p0) * (p - p0)
-        / (1.0f + 2.0f * beta)
+        / (1.0 + 2.0 * beta)
     );
 
     // 8. Case 3: Hardening update
-    if (p0 > 0.0001f &&
-        p < p0 - 0.0001f &&
-        p > -beta * p0 + 0.0001f)
+    if (p0 > 0.0 &&
+        p < p0 - 0.0001 &&
+        p > -beta * p0 + 0.0001)
     {
-        float pc = 0.5f * (1.0f - beta) * p0;
+        float pc = 0.5f * (1.0 - beta) * p0;
 
         float dx = pc - p;
         float dy = -q;
@@ -224,11 +224,11 @@ void naccProject(
 
         float A =
             M * M * Dp * Dp
-            + (1.0f + 2.0f * beta) * Dq * Dq;
+            + (1.0 + 2.0 * beta) * Dq * Dq;
 
         float B =
             M * M * Dp
-            * (2.0f * pc - p0 + beta * p0);
+            * (2.0 * pc - p0 + beta * p0);
 
         float C =
             M * M
@@ -236,62 +236,66 @@ void naccProject(
             * (pc - p0);
 
         float discriminant = max(
-            B * B - 4.0f * A * C,
-            0.0f
+            B * B - 4.0 * A * C,
+            0.0
         );
 
         float root = sqrt(discriminant);
 
-        float l1 = (-B + root) / (2.0f * A);
-        float l2 = (-B - root) / (2.0f * A);
+        float l1 = (-B + root) / (2.0 * A);
+        float l2 = (-B - root) / (2.0 * A);
 
         float p1 = pc + l1 * Dp;
         float p2 = pc + l2 * Dp;
 
         float px =
-            ((p - pc) * (p1 - pc) > 0.0f)
+            ((p - pc) * (p1 - pc) > 0.0)
             ? p1 : p2;
 
-        float JeCross = sqrt(1.0f - 2.0f * px / k);
+        float JeCross = sqrt(1.0 - 2.0 * px / k);
 
-        if (JeCross > 0.0001f)
+        if (JeCross > 0.0001)
         {
             alpha += log(J / JeCross);
         }
     }
 
     // 9. Correct deviatoric stress
-    mat2 sNew = mat2(0.0f);
+    mat2 sNew = mat2(0.0);
 
-    if (q > 0.000001f)
+    if (q > 0.000001)
     {
         sNew = s * (qNew / q);
     }
 
-    // 10. Reconstruct corrected elastic b
-    // Volume and trace are preserved in Case 3.
+    // 10. Reconstruct corrected elastic deformation
 
-    mat2 bNew =
-        (J / mu) * sNew
-        + 0.5f * trB * I;
+	mat2 D = (J / mu) * sNew;
 
-    // 11. Reconstruct corrected Fe
-    // bNew shares the trial principal directions U.
+	// Transform deviatoric tensor into trial principal basis
+	mat2 Dhat = transpose(U) * D * U;
 
-    mat2 bDiag = transpose(U) * bNew * U;
+	// Enforce the theoretical trace-free condition
+	float d = 0.5f * (Dhat[0][0] - Dhat[1][1]);
 
-    float lambda0 = max(bDiag[0][0], 0.0f);
-    float lambda1 = max(bDiag[1][1], 0.0f);
+	// Reconstruct isotropic component
+	float c = sqrt(J * J + d * d);
 
-    mat2 SigmaNew = mat2(
-        sqrt(lambda0), 0.0f,
-        0.0f, sqrt(lambda1)
-    );
+	// Corrected eigenvalues of b
+	float lambda0 = c + d;
+	float lambda1 = c - d;
 
-    Fe_trial = U * SigmaNew * transpose(V);
+	// Corrected principal stretches
+	mat2 SigmaNew = mat2(
+		sqrt(max(lambda0, 0.0f)), 0.0f,
+		0.0f, sqrt(max(lambda1, 0.0f))
+	);
 
-    // 12. Corrected Kirchhoff stress
-    tau = sNew - p * I;
+	// Reconstruct elastic deformation gradient
+	Fe_trial = U * SigmaNew * transpose(V);
+
+	// 11. Corrected Kirchhoff stress
+	tau = sNew - p * I;
 }
 
 
@@ -452,11 +456,13 @@ void main()
 			float alpha;
 			
 			switch (materialId) {
-				case 0:
+				case 1:
 					kirchoff = neohookeanKirchoff(F, mats[materialId].k, mats[materialId].mu);
 					break;
-				case 1:
-					naccProject(F, mats[materialId].k, mats[materialId].mu, 0, 0, 0, alpha, kirchoff);
+				case 0:
+					alpha = bins[binIndex].hardening[pIndex];
+					naccProject(F, mats[materialId].k, mats[materialId].mu, 1, 1, 2.36, alpha, kirchoff);
+					bins[binIndex].hardening[pIndex] = alpha;
 					break;
 			}
 

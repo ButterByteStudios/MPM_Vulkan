@@ -145,6 +145,7 @@ struct alignas(8) Bin
 	glm::mat2 F[BIN_SIZE]; // (8 + 8) * 64 = 1024
 	glm::vec2 position[BIN_SIZE]; // 8 * 32 = 256
 	float mass[BIN_SIZE]; // 4 * 32 = 128
+	float hardening[BIN_SIZE];
 	uint32_t blockParticleIndex[BIN_SIZE]; // 4 * 32 = 128
 	uint32_t particleId[BIN_SIZE]; // 4 * 32
 	uint32_t materialId[BIN_SIZE]; // 4 * 32
@@ -366,6 +367,7 @@ private:
 	float E = 100000;
 	float v = 0.40f;
 	float rho = 1000;
+	float hardening = -0.01;
 	float dx = 1.0f / dimensions;
 	float dt = 0.0001f;
 	float size = 0.5f;
@@ -2038,6 +2040,7 @@ private:
 			bins[binIndex].F[pIndex] = glm::mat2(1.0f);
 			bins[binIndex].position[pIndex] = pos;
 			bins[binIndex].mass[pIndex] = mass;
+			bins[binIndex].hardening[pIndex] = hardening;
 			bins[binIndex].blockParticleIndex[pIndex] = blockPIndex[i];
 			bins[binIndex].particleId[pIndex] = i;
 			bins[binIndex].materialId[pIndex] = 0u;
