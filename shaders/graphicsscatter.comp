@@ -17,8 +17,6 @@ layout(local_size_x = BIN_SIZE, local_size_y = 1, local_size_z = 1) in;
 
 void main()
 {
-	const float invDx = ubo.invDx;
-	
 	uint bIndex = gl_WorkGroupID.x;
 	uint currentPIndex = gl_LocalInvocationID.x;
 

@@ -1998,7 +1998,6 @@ private:
 			//y = (y + 1.0f) / 2.0f * dimensions;
 
 			glm::vec2 cellPos = glm::vec2(x, y);
-			glm::vec2 pos = cellPos * dx;
 			glm::ivec2 coords = glm::ivec2(glm::floor(cellPos - 1.5f));
 			glm::ivec2 blockCoords = coords / 4;
 			uint32_t blockIndex = blockCoords.x + blockCoords.y * particleBlockDimensions;
@@ -2007,7 +2006,7 @@ private:
 			auto test1 = blockPIndex[i];
 			auto test2 = histogram[blockIndex];
 			blockPIndex[i] = histogram[blockIndex]++;
-			particles[i].position = pos;
+			particles[i].position = cellPos;
 			particles[i].color = glm::vec4(rndDist(rndEngine), rndDist(rndEngine), rndDist(rndEngine), 1.0f);
 		}
 

@@ -31,7 +31,7 @@ bool MaterialNode::renderNode()
         changed |= ImGui::InputFloat("##01", &mat.E, 1.0f, 100.0f);
         ImGui::Text("v = ");
         ImGui::SameLine();
-        changed |= ImGui::SliderFloat("##02", &mat.v, 0.01f, 0.49f);
+        changed |= ImGui::SliderFloat("##02", &mat.v, 0.00f, 0.49f);
         ImGui::Text("rho = ");
         ImGui::SameLine();
         changed |= ImGui::InputFloat("##03", &mat.rho, 1.0f, 100.0f);
