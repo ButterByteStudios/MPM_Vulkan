@@ -164,13 +164,13 @@ void main()
 			
 			vec2 d = coords - cellPosition;
 
-			float dx0 = d.x * dx;
-			float dx1 = (1 + d.x) * dx;
-			float dx2 = (2 + d.x) * dx;
+			float dx0 = d.x;
+			float dx1 = (1 + d.x);
+			float dx2 = (2 + d.x);
 
-			float dy0 = d.y * dx;
-			float dy1 = (1 + d.y) * dx;
-			float dy2 = (2 + d.y) * dx;
+			float dy0 = d.y;
+			float dy1 = (1 + d.y);
+			float dy2 = (2 + d.y);
 
 			float uw0 = qw0(-d.x);
 			float uw1 = qw1(-d.x);
@@ -205,7 +205,7 @@ void main()
 				dy1 * (v01 + v11 + v21) +
 				dy2 * (v02 + v12 + v22);
 
-			float inv_D = 4.0 * invDx * invDx;
+			float inv_D = 4.0;
 			mat2 C = B * inv_D;
 
 			mat2 F = (mat2(1.0) + C * dt) * bins[binIndex].F[pIndex];
@@ -213,7 +213,7 @@ void main()
 			float J = determinant(F);
 
 			// 2 outer node halos are off limits so particles stay in particle block territory
-			cellPosition = clamp(cellPosition + dt * v * invDx, 2, dimensions - 2);
+			cellPosition = clamp(cellPosition + dt * v, 2, dimensions - 2);
 
 			bins[binIndex].F[pIndex] = F;
 			bins[binIndex].position[pIndex] = cellPosition;
@@ -223,13 +223,13 @@ void main()
 
 			d = coords - cellPosition;
 
-			dx0 = d.x * dx;
-			dx1 = (1 + d.x) * dx;
-			dx2 = (2 + d.x) * dx;
+			dx0 = d.x;
+			dx1 = (1 + d.x);
+			dx2 = (2 + d.x);
 
-			dy0 = d.y * dx;
-			dy1 = (1 + d.y) * dx;
-			dy2 = (2 + d.y) * dx;
+			dy0 = d.y;
+			dy1 = (1 + d.y);
+			dy2 = (2 + d.y);
 			
 			uw0 = qw0(-d.x);
 			uw1 = qw1(-d.x);
@@ -257,7 +257,7 @@ void main()
 
 			float mass = bins[binIndex].mass[pIndex];
 
-			float volume = mass / rho;
+			float volume = mass / rho * invDx * invDx; // scale volume to cell units
 			float currentVolume = volume * J;
 			
 			mat2 stress = dt * -currentVolume * cauchy * inv_D;
