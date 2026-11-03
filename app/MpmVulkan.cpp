@@ -627,7 +627,7 @@ private:
 		lastMousePos = mousePos;
 		zoom += (mouseInput.scrollDY * scrollSensitivity) * zoom;
 		cameraPos += deltaMouse * sensitivity / zoom;
-		accel = glm::vec2(x, y) * 20.0f / dx;
+		accel = glm::vec2(x, y) * 20.0f;
 	}
 
 	void drawFrame()

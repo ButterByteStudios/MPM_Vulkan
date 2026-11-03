@@ -45,7 +45,7 @@ void main()
 	bool down = y <= 4;
 	bool up = y >= ubo.dimensions - 4;
 
-	vec2 acceleration = vec2(0, -9.81 * ubo.dt * ubo.invDx) + ubo.speed * ubo.dt;
+	vec2 acceleration = vec2(0, -9.81 * ubo.dt) + ubo.speed * ubo.dt;
 
 	if (m == 0)
 	{
@@ -66,7 +66,7 @@ void main()
 	}
 
 	// Put in pushconstants maybe
-	float cflSpeed = 0.5 * ubo.invDt;
+	float cflSpeed = ubo.dx * ubo.invDt;
 
 	// Convert momentum to velocity
 	vGrid[i] = clamp((v / m) + acceleration, -cflSpeed, cflSpeed);
