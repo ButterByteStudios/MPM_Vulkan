@@ -18,6 +18,9 @@
 #define LOG2_BIN_SIZE (6)
 #define BIN_MASK (BIN_SIZE - 1u)
 
+#define NEO_HOOKEAN (0)
+#define NACC (1)
+
 struct Bin
 {
 	mat2[BIN_SIZE] F;
@@ -40,6 +43,7 @@ struct Material
 	float k;
 	float mu;
 	float rho;
+	int materialType;
 };
 
 layout(set = 1, binding = BIND_UBO) uniform ParameterUBO

@@ -36,7 +36,7 @@
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 800;
 const uint32_t MAX_FRAMES_IN_FLIGHT = 2;
-const uint32_t PARTICLE_COUNT = 1 << 14;
+const uint32_t PARTICLE_COUNT = 1 << 12;
 const uint32_t BIN_KERNEL_SIZE = 1;
 const uint32_t GRID_KERNEL_SIZE = 32;
 const uint32_t BLOCK_KERNEL_SIZE = 16;
@@ -101,12 +101,14 @@ struct alignas(4) MaterialLayout
 	float k;
 	float mu;
 	float rho;
+	int materialType;
 
-	MaterialLayout(float E, float v, float rho)
+	MaterialLayout(float E, float v, float rho, int materialType)
 	{
 		this->k = E / (3.0 - 6.0 * v);
 		this->mu = E / (2.0 + 2.0 * v);
 		this->rho = rho;
+		this->materialType = materialType;
 	}
 
 	MaterialLayout()
@@ -114,6 +116,7 @@ struct alignas(4) MaterialLayout
 		this->k = 0;
 		this->mu = 0;
 		this->rho = 0;
+		this->materialType = -1;
 	}
 };
 
@@ -503,7 +506,7 @@ private:
 				if (items[n].renderNode())
 				{
 					// Update materials
-					MaterialLayout mat = MaterialLayout(items[n].mat.E, items[n].mat.v, items[n].mat.rho);
+					MaterialLayout mat = MaterialLayout(items[n].mat.E, items[n].mat.v, items[n].mat.rho, 0);
 					materialStats[n] = mat;
 					dirtyMaterials = true;
 				}
@@ -2213,7 +2216,7 @@ private:
 
 		// Materials
 		bufferSize = sizeof(MaterialLayout) * maxMaterialCount;
-		MaterialLayout materialData(this->E, this->v, this->rho);
+		MaterialLayout materialData(this->E, this->v, this->rho, 0);
 
 		stagingBuffer = createStagingBuffer(bufferSize);
 		memcpy(stagingBuffer.mapped, &materialData, sizeof(MaterialLayout));

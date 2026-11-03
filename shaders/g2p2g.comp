@@ -3,6 +3,7 @@
 #extension GL_EXT_shader_atomic_float: enable
 #extension GL_ARB_shading_language_include: enable
 #include "global.glsl"
+#include "svd.glsl"
 
 layout(set = 0, std430, binding = BIND_VR) readonly buffer GridVelocitySSBOIn
 {
@@ -97,6 +98,204 @@ int gridStepY(uint y)
     return 2 * (int(mortonLUT[q + 1u]) - int(mortonLUT[q])) - 12;
 }
 
+mat2 neohookeanKirchoff(mat2 F, float k, float mu)
+{
+	float J = determinant(F);
+	mat2 F_T = transpose(F);
+	float lambda = k - (mu * 0.66666666666667); 
+	mat2 cauchy = mu / J * (F * F_T - mat2(1.0)) + (lambda * log(J) / J) * mat2(1.0);	
+	return cauchy * J;
+}
+
+
+
+void naccProject(
+    inout mat2 Fe_trial,
+    float k,
+    float mu,
+    float beta,
+    float M,
+    float xi,
+    inout float alpha,
+    out mat2 tau
+)
+{
+    mat2 I = mat2(1.0f);
+
+    // 1. Elastic trial state
+    mat2 b = Fe_trial * transpose(Fe_trial);
+
+    float J = determinant(Fe_trial);
+
+    float trB = b[0][0] + b[1][1];
+
+    mat2 devB = b - 0.5f * trB * I;
+
+    float p = -0.5f * k * (J * J - 1.0f);
+
+    mat2 s = (mu / J) * devB;
+
+    float sNorm = sqrt(
+        dot(s[0], s[0]) +
+        dot(s[1], s[1])
+    );
+
+    float q = sqrt(2.0f) * sNorm;
+
+    // 2. Initial yield surface
+    float p0 = k * sinh(xi * max(-alpha, 0.0f));
+
+    // 3. SVD of trial elastic deformation
+    mat2 U, V;
+    vec2 sigma;
+
+    SVD_FullDecompose(Fe_trial, U, sigma, V);
+
+    // 4. Case 1: Maximum pressure tip
+    if (p > p0)
+    {
+        p = p0;
+
+        float Je = sqrt(1.0f - 2.0f * p / k);
+
+        alpha += log(J / Je);
+
+        float stretch = sqrt(Je);
+
+        Fe_trial = U * (stretch * I) * transpose(V);
+
+        tau = -p * I;
+
+        return;
+    }
+
+    // 5. Case 2: Minimum pressure tip
+    if (p < -beta * p0)
+    {
+        p = -beta * p0;
+
+        float Je = sqrt(1.0f - 2.0f * p / k);
+
+        alpha += log(J / Je);
+
+        float stretch = sqrt(Je);
+
+        Fe_trial = U * (stretch * I) * transpose(V);
+
+        tau = -p * I;
+
+        return;
+    }
+
+    // 6. Yield test
+    float yield =
+        (1.0f + 2.0f * beta) * q * q
+        + M * M * (p + beta * p0) * (p - p0);
+
+    if (yield < 0.0001f)
+    {
+        tau = s - p * I;
+
+        return;
+    }
+
+    // 7. Case 3: Shear projection
+
+    // New shear magnitude
+    float qNew = M * sqrt(
+        -(p + beta * p0) * (p - p0)
+        / (1.0f + 2.0f * beta)
+    );
+
+    // 8. Case 3: Hardening update
+    if (p0 > 0.0001f &&
+        p < p0 - 0.0001f &&
+        p > -beta * p0 + 0.0001f)
+    {
+        float pc = 0.5f * (1.0f - beta) * p0;
+
+        float dx = pc - p;
+        float dy = -q;
+
+        float len = sqrt(dx * dx + dy * dy);
+
+        float Dp = dx / len;
+        float Dq = dy / len;
+
+        float A =
+            M * M * Dp * Dp
+            + (1.0f + 2.0f * beta) * Dq * Dq;
+
+        float B =
+            M * M * Dp
+            * (2.0f * pc - p0 + beta * p0);
+
+        float C =
+            M * M
+            * (pc + beta * p0)
+            * (pc - p0);
+
+        float discriminant = max(
+            B * B - 4.0f * A * C,
+            0.0f
+        );
+
+        float root = sqrt(discriminant);
+
+        float l1 = (-B + root) / (2.0f * A);
+        float l2 = (-B - root) / (2.0f * A);
+
+        float p1 = pc + l1 * Dp;
+        float p2 = pc + l2 * Dp;
+
+        float px =
+            ((p - pc) * (p1 - pc) > 0.0f)
+            ? p1 : p2;
+
+        float JeCross = sqrt(1.0f - 2.0f * px / k);
+
+        if (JeCross > 0.0001f)
+        {
+            alpha += log(J / JeCross);
+        }
+    }
+
+    // 9. Correct deviatoric stress
+    mat2 sNew = mat2(0.0f);
+
+    if (q > 0.000001f)
+    {
+        sNew = s * (qNew / q);
+    }
+
+    // 10. Reconstruct corrected elastic b
+    // Volume and trace are preserved in Case 3.
+
+    mat2 bNew =
+        (J / mu) * sNew
+        + 0.5f * trB * I;
+
+    // 11. Reconstruct corrected Fe
+    // bNew shares the trial principal directions U.
+
+    mat2 bDiag = transpose(U) * bNew * U;
+
+    float lambda0 = max(bDiag[0][0], 0.0f);
+    float lambda1 = max(bDiag[1][1], 0.0f);
+
+    mat2 SigmaNew = mat2(
+        sqrt(lambda0), 0.0f,
+        0.0f, sqrt(lambda1)
+    );
+
+    Fe_trial = U * SigmaNew * transpose(V);
+
+    // 12. Corrected Kirchhoff stress
+    tau = sNew - p * I;
+}
+
+
+
 layout(local_size_x = BIN_SIZE, local_size_y = 1, local_size_z = 1) in;
 
 // Naming conventions
@@ -154,11 +353,9 @@ void main()
 		uint binParticleCount = bins[binIndex].particleCount;
 		if (pIndex < binParticleCount)
 		{
-			float k = mats[bins[binIndex].materialId[pIndex]].k;
-			float mu = mats[bins[binIndex].materialId[pIndex]].mu;
-			float rho = mats[bins[binIndex].materialId[pIndex]].rho;
-
 			vec2 cellPosition = bins[binIndex].position[pIndex];
+			float mass = bins[binIndex].mass[pIndex];
+
 			ivec2 coords = ivec2(cellPosition - 0.5);
 			ivec2 coordsInBlock = coords - gridBlockCellCoords;
 			
@@ -210,12 +407,9 @@ void main()
 
 			mat2 F = (mat2(1.0) + C * dt) * bins[binIndex].F[pIndex];
 
-			float J = determinant(F);
-
 			// 2 outer node halos are off limits so particles stay in particle block territory
 			cellPosition = clamp(cellPosition + dt * v, 2, dimensions - 2);
 
-			bins[binIndex].F[pIndex] = F;
 			bins[binIndex].position[pIndex] = cellPosition;
 
 			coords = ivec2(cellPosition - 0.5);
@@ -251,16 +445,26 @@ void main()
 			float w12 = uw1 * vw2;
 			float w22 = uw2 * vw2;
 
-			mat2 F_T = transpose(F);
-			float lambda = k - (mu * 0.66666666666667); 
-			mat2 cauchy = mu / J * (F * F_T - mat2(1.0)) + (lambda * log(J) / J) * mat2(1.0);
+			uint materialId = bins[binIndex].materialId[pIndex];
+			float rho = mats[materialId].rho;
 
-			float mass = bins[binIndex].mass[pIndex];
+			mat2 kirchoff;
+			float alpha;
+			
+			switch (materialId) {
+				case 0:
+					kirchoff = neohookeanKirchoff(F, mats[materialId].k, mats[materialId].mu);
+					break;
+				case 1:
+					naccProject(F, mats[materialId].k, mats[materialId].mu, 0, 0, 0, alpha, kirchoff);
+					break;
+			}
+
+			bins[binIndex].F[pIndex] = F;
 
 			float volume = mass / rho * invDx * invDx; // scale volume to cell units
-			float currentVolume = volume * J;
 			
-			mat2 stress = dt * -currentVolume * cauchy * inv_D;
+			mat2 stress = dt * -volume * kirchoff * inv_D;
 			mat2 affine = stress + mass * C;
 
 			vec2 vm = v * mass;
