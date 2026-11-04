@@ -103,12 +103,11 @@ mat2 neohookeanKirchoff(mat2 F, float k, float mu)
 	float J = determinant(F);
 	mat2 F_T = transpose(F);
 	float lambda = k - (mu * 0.66666666666667); 
-	mat2 cauchy = mu / J * (F * F_T - mat2(1.0)) + (lambda * log(J) / J) * mat2(1.0);	
-	return cauchy * J;
+	return mu * (F * F_T - mat2(1.0)) + (lambda * log(J)) * mat2(1.0);	
 }
 
 
-
+// Model uses neo-hookean stress. Can be changed to 
 void naccProject(
     inout mat2 Fe_trial,
     float k,
@@ -392,10 +391,10 @@ void main()
 			float alpha;
 			
 			switch (materialId) {
-				case 1:
+				case 0:
 					kirchoff = neohookeanKirchoff(F, mats[materialId].k, mats[materialId].mu);
 					break;
-				case 0:
+				case 1:
 					alpha = bins[binIndex].hardening[pIndex];
 					naccProject(F, mats[materialId].k, mats[materialId].mu, 1, 1, 2.36, alpha, kirchoff);
 					bins[binIndex].hardening[pIndex] = alpha;
