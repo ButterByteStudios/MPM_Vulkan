@@ -364,12 +364,12 @@ private:
 	float sensitivity = 0.002f;
 	float scrollSensitivity = 0.05f;
 
-	float E = 100000;
+	float E = 1000000;
 	float v = 0.40f;
 	float rho = 1000;
 	float hardening = -0.01;
 	float dx = 1.0f / dimensions;
-	float dt = 0.0001f;
+	float dt = 0.00001f;
 	float size = 0.5f;
 	uint32_t substeps = 15;
 	glm::vec2 cameraPos = glm::vec2(0);
@@ -396,6 +396,8 @@ private:
 			{
 				getInput();
 			}
+			else
+				lastMousePos = glm::vec2((float)mouseInput.posX, (float)mouseInput.posY);
 
 			drawFrame();
 

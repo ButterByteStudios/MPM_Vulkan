@@ -1,8 +1,8 @@
-
+// https://scicomp.stackexchange.com/a/18766
 void svd(mat2 A, out mat2 U, out vec2 s, out mat2 V) 
 {
-    s[0] = (sqrt(pow(A[0][0] - A[1][1], 2) + pow(A[1][0] + A[0][1], 2)) + sqrt(pow(A[0][0] + A[1][1], 2) + pow(A[1][0] + A[0][1], 2))) / 2;
-    s[1] = abs(s[0] - sqrt(pow(A[0][0] - A[1][1], 2) + pow(A[1][0] + A[0][1], 2)));
+    s[0] = 0.5 * (length(vec2(A[0][0] - A[1][1], A[1][0] + A[0][1])) + length(vec2(A[0][0] + A[1][1], A[1][0] - A[0][1])));
+    s[1] = abs(determinant(A)) / s[0];
     V[0][1] = (s[0] > s[1]) ? sin((atan(2 * (A[0][0] * A[1][0] + A[0][1] * A[1][1]), A[0][0] * A[0][0] - A[1][0] * A[1][0] + A[0][1] * A[0][1] - A[1][1] * A[1][1])) / 2) : 0;
     V[0][0] = sqrt(1 - V[0][1] * V[0][1]);
     V[1][0] = -V[0][1];

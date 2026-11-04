@@ -122,180 +122,116 @@ void naccProject(
 {
     mat2 I = mat2(1.0);
 
-    // 1. Elastic trial state
-    mat2 b = Fe_trial * transpose(Fe_trial);
-
-    float J = determinant(Fe_trial);
-
-    float trB = b[0][0] + b[1][1];
-
-    mat2 devB = b - 0.5f * trB * I;
-
-    float p = -0.5f * k * (J * J - 1.0);
-
-    mat2 s = (mu / J) * devB;
-
-    float sNorm = sqrt(
-        dot(s[0], s[0]) +
-        dot(s[1], s[1])
-    );
-
-    float q = sqrt(2.0) * sNorm;
-
-    // 2. Initial yield surface
-    float p0 = k * sinh(xi * max(-alpha, 0.0));
-
-    // 3. SVD of trial elastic deformation
-    mat2 U, V;
+	mat2 U, V;
     vec2 sigma;
 
     svd(Fe_trial, U, sigma, V);
+	float p0 = k * (0.00001 + sinh(xi * max(-alpha, 0)));
 
-    // 4. Case 1: Maximum pressure tip
-    if (p >= p0)
+	// Calculating trial values
+	float Je_tr = sigma[0] * sigma[1];
+	vec2 sigmaSqr = sigma * sigma;
+	float sigmaSqr_trace = (sigmaSqr[0] + sigmaSqr[1]) * 0.5;
+
+	vec2 s_tr = (mu / Je_tr) * (sigmaSqr - sigmaSqr_trace);
+	float p_tr = -0.5 * k * (Je_tr * Je_tr - 1.0);
+
+    // Case 1: Project to max tip of the YS
+    if (p_tr > p0)
     {
-        p = p0;
+        float Je_new = sqrt(1.0 - 2.0 * p0 / k);
 
-        float Je = sqrt(1.0 - 2.0 * p / k);
+        alpha += log(Je_tr / Je_new);
 
-        alpha += log(J / Je);
+        float sigma_components = sqrt(Je_new);
 
-        float stretch = sqrt(Je);
+        Fe_trial = U * sigma_components * transpose(V);
 
-        Fe_trial = U * (stretch * I) * transpose(V);
-
-        tau = -p * I;
+        tau = -p0 * I; // p_tr gets projected to p0 and the deviatoric part of the matrix sigma is a null matrix
 
         return;
     }
 
-    // 5. Case 2: Minimum pressure tip
-    if (p <= -beta * p0)
+    // Case 2: Project to min tip of the YS
+    if (p_tr < -beta * p0)
     {
-        p = -beta * p0;
+        float Je_new = sqrt(1.0 + 2.0 * beta * p0 / k);
 
-        float Je = sqrt(1.0 - 2.0 * p / k);
+        alpha += log(Je_tr / Je_new);
 
-        alpha += log(J / Je);
+        float sigma_components = sqrt(Je_new);
 
-        float stretch = sqrt(Je);
+        Fe_trial = U * sigma_components * transpose(V);
 
-        Fe_trial = U * (stretch * I) * transpose(V);
-
-        tau = -p * I;
+        tau = beta * p0 * I;
 
         return;
     }
 
-    // 6. Yield test
+    // Yield test before case 3
+	float sqr_s_norm = dot(s_tr, s_tr);
+	float s_norm = sqrt(sqr_s_norm);
+
     float yield =
-        (1.0 + 2.0 * beta) * q * q
-        + M * M * (p + beta * p0) * (p - p0);
+        (1.0 + 2.0 * beta) * 2.0 * sqr_s_norm + M * M * (p_tr + beta * p0) * (p_tr - p0);
 
-    if (yield < 0.0001)
+    if (yield < 0.0001) // Inside ys
     {
-        tau = s - p * I;
+        tau = U * mat2(s_tr[0] - p_tr, 0.0, 0.0, s_tr[1] - p_tr) * transpose(U);
 
         return;
     }
 
-    // 7. Case 3: Shear projection
-
-    // New shear magnitude
-    float qNew = M * sqrt(
-        -(p + beta * p0) * (p - p0)
-        / (1.0 + 2.0 * beta)
-    );
-
-    // 8. Case 3: Hardening update
-    if (p0 > 0.0 &&
-        p < p0 - 0.0001 &&
-        p > -beta * p0 + 0.0001)
+    // Case 3: Hardening routine
+    if (p0 > 0.0001 &&
+        p_tr < p0 - 0.0001 &&
+        p_tr > -beta * p0 + 0.0001)
     {
-        float pc = 0.5f * (1.0 - beta) * p0;
+        float pc = 0.5 * (1.0 - beta) * p0;
+		float q_tr = sqrt(2.0) * s_norm;
 
-        float dx = pc - p;
-        float dy = -q;
+        float dx = pc - p_tr;
+        float dy = -q_tr;
 
         float len = sqrt(dx * dx + dy * dy);
 
         float Dp = dx / len;
         float Dq = dy / len;
 
-        float A =
-            M * M * Dp * Dp
-            + (1.0 + 2.0 * beta) * Dq * Dq;
+        float A = M * M * Dp * Dp + (1.0 + 2.0 * beta) * Dq * Dq;
 
-        float B =
-            M * M * Dp
-            * (2.0 * pc - p0 + beta * p0);
+        float B = M * M * Dp * (2.0 * pc - p0 + beta * p0);
 
-        float C =
-            M * M
-            * (pc + beta * p0)
-            * (pc - p0);
+        float C = M * M * (pc + beta * p0) * (pc - p0);
 
-        float discriminant = max(
-            B * B - 4.0 * A * C,
-            0.0
-        );
+        float root_discriminant = sqrt(B * B - 4.0 * A * C);
 
-        float root = sqrt(discriminant);
-
-        float l1 = (-B + root) / (2.0 * A);
-        float l2 = (-B - root) / (2.0 * A);
+        float l1 = (-B + root_discriminant) / (2.0 * A);
+        float l2 = (-B - root_discriminant) / (2.0 * A);
 
         float p1 = pc + l1 * Dp;
         float p2 = pc + l2 * Dp;
 
-        float px =
-            ((p - pc) * (p1 - pc) > 0.0)
-            ? p1 : p2;
+        float px = ((p_tr - pc) * (p1 - pc) > 0.0) ? p1 : p2;
 
-        float JeCross = sqrt(1.0 - 2.0 * px / k);
+        float Je_cross = sqrt(1.0 - 2.0 * px / k);
 
-        if (JeCross > 0.0001)
+        if (Je_cross > 0.0001)
         {
-            alpha += log(J / JeCross);
+            alpha += log(Je_tr / Je_cross);
         }
     }
 
-    // 9. Correct deviatoric stress
-    mat2 sNew = mat2(0.0);
+    // Case 3: Yield Surface projection
+    vec2 be_new = sqrt((-M * M * (p_tr + beta * p0) * (p_tr - p0)) / (2 + 4 * beta)) * (Je_tr / mu) * (s_tr / s_norm) + sigmaSqr_trace;
 
-    if (q > 0.000001)
-    {
-        sNew = s * (qNew / q);
-    }
-
-    // 10. Reconstruct corrected elastic deformation
-
-	mat2 D = (J / mu) * sNew;
-
-	// Transform deviatoric tensor into trial principal basis
-	mat2 Dhat = transpose(U) * D * U;
-
-	// Enforce the theoretical trace-free condition
-	float d = 0.5f * (Dhat[0][0] - Dhat[1][1]);
-
-	// Reconstruct isotropic component
-	float c = sqrt(J * J + d * d);
-
-	// Corrected eigenvalues of b
-	float lambda0 = c + d;
-	float lambda1 = c - d;
-
-	// Corrected principal stretches
-	mat2 SigmaNew = mat2(
-		sqrt(max(lambda0, 0.0f)), 0.0f,
-		0.0f, sqrt(max(lambda1, 0.0f))
-	);
-
+	mat2 sigma_new = mat2(sqrt(be_new[0]), 0, 0, sqrt(be_new[1]));
 	// Reconstruct elastic deformation gradient
-	Fe_trial = U * SigmaNew * transpose(V);
+	Fe_trial = U * sigma_new * transpose(V);
 
-	// 11. Corrected Kirchhoff stress
-	tau = sNew - p * I;
+	float be_trace = 0.5 * (be_new[0] + be_new[1]);
+	vec2 s_new = (mu / Je_tr) * (be_new - be_trace);
+	tau = U * mat2(s_new[0] - p_tr, 0.0, 0.0, s_new[1] - p_tr) * transpose(U);
 }
 
 
@@ -365,13 +301,13 @@ void main()
 			
 			vec2 d = coords - cellPosition;
 
-			float dx0 = d.x;
-			float dx1 = (1 + d.x);
-			float dx2 = (2 + d.x);
+			float dx0 = d.x * dx;
+			float dx1 = (1 + d.x) * dx;
+			float dx2 = (2 + d.x) * dx;
 
-			float dy0 = d.y;
-			float dy1 = (1 + d.y);
-			float dy2 = (2 + d.y);
+			float dy0 = d.y * dx;
+			float dy1 = (1 + d.y) * dx;
+			float dy2 = (2 + d.y) * dx;
 
 			float uw0 = qw0(-d.x);
 			float uw1 = qw1(-d.x);
@@ -406,13 +342,13 @@ void main()
 				dy1 * (v01 + v11 + v21) +
 				dy2 * (v02 + v12 + v22);
 
-			float inv_D = 4.0;
+			float inv_D = 4.0 * invDx * invDx;
 			mat2 C = B * inv_D;
 
 			mat2 F = (mat2(1.0) + C * dt) * bins[binIndex].F[pIndex];
 
 			// 2 outer node halos are off limits so particles stay in particle block territory
-			cellPosition = clamp(cellPosition + dt * v, 2, dimensions - 2);
+			cellPosition = clamp(cellPosition + dt * v * invDx, 2, dimensions - 2);
 
 			bins[binIndex].position[pIndex] = cellPosition;
 
@@ -421,13 +357,13 @@ void main()
 
 			d = coords - cellPosition;
 
-			dx0 = d.x;
-			dx1 = (1 + d.x);
-			dx2 = (2 + d.x);
+			dx0 = d.x * dx;
+			dx1 = (1 + d.x) * dx;
+			dx2 = (2 + d.x) * dx;
 
-			dy0 = d.y;
-			dy1 = (1 + d.y);
-			dy2 = (2 + d.y);
+			dy0 = d.y * dx;
+			dy1 = (1 + d.y) * dx;
+			dy2 = (2 + d.y) * dx;
 			
 			uw0 = qw0(-d.x);
 			uw1 = qw1(-d.x);
@@ -468,7 +404,7 @@ void main()
 
 			bins[binIndex].F[pIndex] = F;
 
-			float volume = mass / rho * invDx * invDx; // scale volume to cell units
+			float volume = mass / rho;
 			
 			mat2 stress = dt * -volume * kirchoff * inv_D;
 			mat2 affine = stress + mass * C;
