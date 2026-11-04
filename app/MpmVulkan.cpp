@@ -35,6 +35,7 @@
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 800;
+const uint32_t MAX_MATERIAL_COUNT = 10;
 const uint32_t MAX_FRAMES_IN_FLIGHT = 2;
 const uint32_t PARTICLE_COUNT = 1 << 12;
 const uint32_t BIN_KERNEL_SIZE = 1;
@@ -94,30 +95,6 @@ struct alignas(8) InteractUBO
 {
 	glm::vec2 mousePos;
 	uint32_t particleCount;
-};
-
-struct alignas(4) MaterialLayout
-{
-	float k;
-	float mu;
-	float rho;
-	int materialType;
-
-	MaterialLayout(float E, float v, float rho, int materialType)
-	{
-		this->k = E / (3.0 - 6.0 * v);
-		this->mu = E / (2.0 + 2.0 * v);
-		this->rho = rho;
-		this->materialType = materialType;
-	}
-
-	MaterialLayout()
-	{
-		this->k = 0;
-		this->mu = 0;
-		this->rho = 0;
-		this->materialType = -1;
-	}
 };
 
 struct ScatterDispatchData
@@ -221,6 +198,7 @@ public:
 		initWindow();
 		initVulkan();
 		initImgui();
+		initGui();
 		mainLoop();
 		cleanup();
 	}
@@ -318,12 +296,12 @@ private:
 	std::vector<VkSemaphore> computeFinishedSemaphores;
 	std::vector<VkFence> computeInFlightFences;
 
+	MaterialsManager materialsManager;
+
 	bool framebufferResized = false;
 
 	uint32_t currentFrame = 0;
 	uint32_t currentCompute = 0;
-
-	std::vector<MaterialLayout> materialStats; // Create a materialsManager for this stuff. Materials stay on their index (so when materials get deleted particles dont need to change index). Materials get added in empty slots or at the end
 
 	val::VulkanAllocator bufferAllocator;
 
@@ -358,7 +336,6 @@ private:
 
 	double lastTime = 0;
 	double lastFrameTime = 0;
-	bool dirtyMaterials = false;
 
 	glm::vec2 lastMousePos = glm::vec2(0);
 	float sensitivity = 0.002f;
@@ -376,8 +353,6 @@ private:
 	float zoom = 1;
 	glm::vec2 accel = glm::vec2(0);
 
-	uint32_t maxMaterialCount = 10;
-
 	void mainLoop()
 	{
 		while (!glfwWindowShouldClose(window))
@@ -388,7 +363,12 @@ private:
 			int width, height;
 			glfwGetFramebufferSize(window, &width, &height);
 
-			renderMaterialGui();
+			materialsManager.render();
+
+			if (materialsManager.isDirty())
+			{
+				memcpy(materialStagingBuffer.mapped, materialsManager.materialLayouts.data(), sizeof(MaterialLayout) * MAX_MATERIAL_COUNT);
+			}
 
 			ImGuiIO& io = ImGui::GetIO();
 
@@ -491,54 +471,45 @@ private:
 		ImGui_ImplVulkan_Init(&initInfo);
 	}
 
-	void renderMaterialGui()
+	void initGui()
 	{
-		ImGui_ImplVulkan_NewFrame();
-		ImGui_ImplGlfw_NewFrame();
+		materialsManager = MaterialsManager(MAX_MATERIAL_COUNT);
+		//Conversion k = [](const Parameters& p) { return p[1] / (3.0 - 6.0 * p[2]); };
+		//Conversion mu = [](const Parameters& p) { return p[1] / (2.0 + 2.0 * p[2]); };
+		//Conversion lambda = [](const Parameters& p) { return p[1] * p[2] / ((1 + p[2]) * (1 - 2 * p[2])); };
 
-		ImGui::NewFrame();
+		std::vector<InputData> neoHookeanInputs{
+			InputData("Density", InputData::InputType::INPUT_FLOAT, 1.0f, 100.0f, 1000.0f),
+			InputData("E", InputData::InputType::INPUT_FLOAT, 1.0f, 100.0f, 1000000.0f),
+			InputData("v", InputData::InputType::SLIDER_FLOAT, 0.0f, 0.49f, 0.4f)
+		};
+		std::vector<Conversion> neoHookeanConversions{
+			[](const Parameters& p) { return p[0]; },
+			[](const Parameters& p) { return p[1] * p[2] / ((1 + p[2]) * (1 - 2 * p[2])); },
+			[](const Parameters& p) { return p[1] / (2.0 + 2.0 * p[2]); }
+		};
+		materialsManager.addMaterialType(neoHookeanInputs, neoHookeanConversions);
 
-		ImGui::Begin("Materials demo");
+		std::vector<InputData> naccInputs{
+			InputData("Density", InputData::InputType::INPUT_FLOAT, 1.0f, 100.0f, 1000.0f),
+			InputData("E", InputData::InputType::INPUT_FLOAT, 1.0f, 100.0f, 1000000.0f),
+			InputData("v", InputData::InputType::SLIDER_FLOAT, 0.0f, 0.49f, 0.4f),
+			InputData("beta", InputData::InputType::SLIDER_FLOAT, 0.0f, 2.0f, 1.0f),
+			InputData("friction angle", InputData::InputType::SLIDER_FLOAT, 0.0f, 90.0f, 40.0f),
+			InputData("xi", InputData::InputType::SLIDER_FLOAT, 0.0f, 2.0f, 0.8f)
+		};
+		std::vector<Conversion> naccConversions{
+			[](const Parameters& p) { return p[0]; }, // rho
+			[](const Parameters& p) { return p[1] / (3.0 - 6.0 * p[2]); }, // E and v to k
+			[](const Parameters& p) { return p[1] / (2.0 + 2.0 * p[2]); }, // E and v to mu
+			[](const Parameters& p) { return p[3]; }, // beta
+			[](const Parameters& p) { return (6.0 * glm::sin(p[4])) / (3.0f - glm::sin(p[4])); }, // M
+			[](const Parameters& p) { return p[5]; }, // xi
+		};
+		materialsManager.addMaterialType(naccInputs, naccConversions);
 
-		static std::vector<MaterialNode> items = { MaterialNode(0, this->E, this->v, this->rho) };
-		static int selectedIndex = -1;
-		if (ImGui::BeginListBox("##00"))
-		{
-			for (int n = 0; n < static_cast<uint32_t>(items.size()); n++)
-			{
-				ImGui::PushID(n);
-				if (items[n].renderNode())
-				{
-					// Update materials
-					MaterialLayout mat = MaterialLayout(items[n].mat.E, items[n].mat.v, items[n].mat.rho, 0);
-					materialStats[n] = mat;
-					dirtyMaterials = true;
-				}
-
-				ImGui::PopID();
-			}
-
-			ImGui::EndListBox();
-		}
-
-		if (static_cast<uint32_t>(items.size()) < maxMaterialCount && ImGui::Button("Add"))
-			items.push_back(MaterialNode(static_cast<uint32_t>(items.size()), this->E, this->v, this->rho));
-
-		//ImGui::SameLine();
-
-		// Removing materials is weird because particles would need to be deleted
-		//if (selectedIndex != -1 && static_cast<uint32_t>(items.size()) > 1 && ImGui::Button("Remove"))
-		//{
-		//	items.erase(items.begin() + selectedIndex);
-		//	selectedIndex = -1;
-		//}
-
-		ImGui::End();
-
-		if (dirtyMaterials)
-		{
-			memcpy(materialStagingBuffer.mapped, materialStats.data(), sizeof(MaterialLayout) * maxMaterialCount);
-		}
+		materialsManager.addMaterial(0);
+		materialsManager.addMaterial(1);
 	}
 
 	void createInstance()
@@ -1419,7 +1390,7 @@ private:
 			VkDescriptorBufferInfo materialsBufferInfo{};
 			materialsBufferInfo.buffer = materialsBuffer.buffer;
 			materialsBufferInfo.offset = 0;
-			materialsBufferInfo.range = sizeof(MaterialLayout) * maxMaterialCount;
+			materialsBufferInfo.range = sizeof(MaterialLayout) * MAX_MATERIAL_COUNT;
 
 			binding = 10;
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1747,14 +1718,14 @@ private:
 		transferToComputeBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 		transferToComputeBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
-		if (dirtyMaterials)
+		if (materialsManager.isDirty())
 		{
-			dirtyMaterials = false;
+			materialsManager.setClean();
 
 			VkBufferCopy copyRegion{};
 			copyRegion.srcOffset = 0;
 			copyRegion.dstOffset = 0;
-			copyRegion.size = sizeof(MaterialLayout) * maxMaterialCount;
+			copyRegion.size = sizeof(MaterialLayout) * MAX_MATERIAL_COUNT;
 			vkCmdCopyBuffer(commandBuffer, materialStagingBuffer.buffer, materialsBuffer.buffer, 1, &copyRegion);
 
 			vkCmdPipelineBarrier(commandBuffer,
@@ -2219,37 +2190,22 @@ private:
 		stagingBuffer.dispose();
 		//
 
-		// Materials
-		bufferSize = sizeof(MaterialLayout) * maxMaterialCount;
-		MaterialLayout materialData(this->E, this->v, this->rho, 0);
-
-		stagingBuffer = createStagingBuffer(bufferSize);
-		memcpy(stagingBuffer.mapped, &materialData, sizeof(MaterialLayout));
+		// Materials buffer
+		bufferSize = sizeof(MaterialLayout) * MAX_MATERIAL_COUNT;
 
 		materialsBuffer = bufferAllocator.create({
-			bufferSize * maxMaterialCount,
+			bufferSize,
 			val::BufferUsage::Storage,
 			val::BufferLifetime::Static
 			});
-
-		copyBuffer(stagingBuffer.buffer, materialsBuffer.buffer, bufferSize);
-
-		stagingBuffer.dispose();
-		//
-		
 		// Staging buffer for materials
-		bufferSize = sizeof(MaterialLayout) * maxMaterialCount;
+		bufferSize = sizeof(MaterialLayout) * MAX_MATERIAL_COUNT;
 		
 		materialStagingBuffer = bufferAllocator.create({
 			bufferSize,
 			val::BufferUsage::Staging,
 			val::BufferLifetime::Static
 			});
-		//
-		
-		// Materials initialization
-		materialStats.resize(maxMaterialCount);
-		materialStats[0] = materialData;
 		//
 		
 		// Maybe create seperate transferqueue?

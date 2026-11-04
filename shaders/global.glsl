@@ -39,11 +39,17 @@ struct Particle
 	vec2 position;
 };
 
+#define I_RHO (0)
+#define I_LAMBDA (1)
+#define I_K (1)
+#define I_MU (2)
+#define I_BETA (3)
+#define I_M (4)
+#define I_XI (5)
+
 struct Material
 {
-	float k;
-	float mu;
-	float rho;
+	float[6] params;
 	int materialType;
 };
 

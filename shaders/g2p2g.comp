@@ -98,11 +98,10 @@ int gridStepY(uint y)
     return 2 * (int(mortonLUT[q + 1u]) - int(mortonLUT[q])) - 12;
 }
 
-mat2 neohookeanKirchoff(mat2 F, float k, float mu)
+mat2 neohookeanKirchoff(mat2 F, float lambda, float mu)
 {
 	float J = determinant(F);
 	mat2 F_T = transpose(F);
-	float lambda = k - (mu * 0.66666666666667); 
 	return mu * (F * F_T - mat2(1.0)) + (lambda * log(J)) * mat2(1.0);	
 }
 
@@ -385,18 +384,19 @@ void main()
 			float w22 = uw2 * vw2;
 
 			uint materialId = bins[binIndex].materialId[pIndex];
-			float rho = mats[materialId].rho;
+			float rho = mats[materialId].params[I_RHO];
 
 			mat2 kirchoff;
 			float alpha;
 			
 			switch (materialId) {
-				case 0:
-					kirchoff = neohookeanKirchoff(F, mats[materialId].k, mats[materialId].mu);
+				case NEO_HOOKEAN:
+					kirchoff = neohookeanKirchoff(F, mats[materialId].params[I_LAMBDA], mats[materialId].params[I_MU]);
 					break;
-				case 1:
+				case NACC:
 					alpha = bins[binIndex].hardening[pIndex];
-					naccProject(F, mats[materialId].k, mats[materialId].mu, 1, 1, 2.36, alpha, kirchoff);
+					naccProject(F, mats[materialId].params[I_K], mats[materialId].params[I_MU], mats[materialId].params[I_BETA], mats[materialId].params[I_M], mats[materialId].params[I_XI], alpha, kirchoff);
+					// 1, 1, 2.36
 					bins[binIndex].hardening[pIndex] = alpha;
 					break;
 			}
