@@ -9,7 +9,7 @@ namespace iml
 	{
 		for (int key : keysToMonitor)
 		{
-			keys[key] = false;
+			keys[key] = KeyState();
 		}
 
 		KeyInput::instances.push_back(this);
@@ -20,27 +20,81 @@ namespace iml
 		instances.erase(std::remove(instances.begin(), instances.end(), this), instances.end());
 	}
 
-	bool KeyInput::getIsKeyDown(int key)
+	void KeyInput::clearFrameValues()
+	{
+		for (KeyInput* instance : instances)
+		{
+			KeyInput& input = *instance;
+			for (auto& [key, state] : input.keys)
+			{
+				state.wasPressed = false;
+				state.wasReleased = false;
+			}
+		}
+	}
+
+	bool KeyInput::isKeyDown(int key)
 	{
 		bool result = false;
 		if (isEnabled)
 		{
-			std::map<int, bool>::iterator it = keys.find(key);
-			if (it != keys.end())
-			{
-				result = keys[key];
-			}
+			std::map<int, KeyState>::iterator it = keys.find(key);
+			if (it == keys.end())
+				return false;
+
+			result = it->second.isDown;
 		}
 
 		return result;
 	}
 
-	void KeyInput::setIsKeyDown(int key, bool isDown)
+	bool KeyInput::wasKeyPressed(int key)
 	{
-		std::map<int, bool>::iterator it = keys.find(key);
-		if (it != keys.end())
+		bool result = false;
+		if (isEnabled)
 		{
-			keys[key] = isDown;
+			std::map<int, KeyState>::iterator it = keys.find(key);
+			if (it == keys.end())
+				return false;
+
+			result = it->second.wasPressed;
+		}
+
+		return result;
+	}
+
+	bool KeyInput::wasKeyReleased(int key)
+	{
+		bool result = false;
+		if (isEnabled)
+		{
+			std::map<int, KeyState>::iterator it = keys.find(key);
+			if (it == keys.end())
+				return false;
+
+			result = it->second.wasReleased;
+		}
+
+		return result;
+	}
+
+	void KeyInput::setKeyState(int key, int action)
+	{
+		std::map<int, KeyState>::iterator it = keys.find(key);
+		if (it == keys.end())
+			return;
+		
+		KeyState& state = it->second;
+
+		if (action == GLFW_RELEASE && state.isDown)
+		{
+			state.wasReleased = true;
+			state.isDown = false;
+		}
+		if (action == GLFW_PRESS && !state.isDown)
+		{
+			state.wasPressed = true;
+			state.isDown = true;
 		}
 	}
 
@@ -53,7 +107,7 @@ namespace iml
 	{
 		for (KeyInput* keyInput : instances)
 		{
-			keyInput->setIsKeyDown(key, action != GLFW_RELEASE);
+			keyInput->setKeyState(key, action);
 		}
 	}
 }

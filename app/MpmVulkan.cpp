@@ -208,7 +208,8 @@ private:
 		GLFW_KEY_W,
 		GLFW_KEY_A,
 		GLFW_KEY_S,
-		GLFW_KEY_D
+		GLFW_KEY_D,
+		GLFW_KEY_SPACE
 	};
 
 	std::vector<int> buttons{
@@ -299,6 +300,7 @@ private:
 	MaterialsManager materialsManager;
 
 	bool framebufferResized = false;
+	bool pausedSimulation = true;
 
 	uint32_t currentFrame = 0;
 	uint32_t currentCompute = 0;
@@ -358,6 +360,7 @@ private:
 		while (!glfwWindowShouldClose(window))
 		{
 			iml::MouseInput::clearFrameValues();
+			iml::KeyInput::clearFrameValues();
 			glfwPollEvents();
 
 			int width, height;
@@ -597,8 +600,8 @@ private:
 
 	void getInput()
 	{
-		int y = keyInput.getIsKeyDown(GLFW_KEY_W) - keyInput.getIsKeyDown(GLFW_KEY_S);
-		int x = keyInput.getIsKeyDown(GLFW_KEY_D) - keyInput.getIsKeyDown(GLFW_KEY_A);
+		int y = keyInput.isKeyDown(GLFW_KEY_W) - keyInput.isKeyDown(GLFW_KEY_S);
+		int x = keyInput.isKeyDown(GLFW_KEY_D) - keyInput.isKeyDown(GLFW_KEY_A);
 		
 		glm::vec2 mousePos = glm::vec2((float)mouseInput.posX, (float)mouseInput.posY);
 		glm::vec2 deltaMouse = mouseInput.getIsButtonDown(GLFW_MOUSE_BUTTON_LEFT) ? lastMousePos - mousePos : glm::vec2(0);
@@ -606,6 +609,12 @@ private:
 		zoom += (mouseInput.scrollDY * scrollSensitivity) * zoom;
 		cameraPos += deltaMouse * sensitivity / zoom;
 		accel = glm::vec2(x, y) * 20.0f / dx;
+
+		if (keyInput.wasKeyPressed(GLFW_KEY_SPACE))
+		{
+			std::cout << pausedSimulation;
+			pausedSimulation = !pausedSimulation;
+		}
 	}
 
 	void drawFrame()
@@ -1740,112 +1749,119 @@ private:
 
 		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 1, 1, &transferDescriptorSets[currentFrame], 0, nullptr);
 
-		for (uint32_t i = 0; i < substeps; i++)
+		if (!pausedSimulation)
+		{
+			for (uint32_t i = 0; i < substeps; i++)
+			{
+				vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &substepDescriptorSets[currentCompute], 0, nullptr);
+
+				vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, g2p2gComputePipeline);
+				vkCmdDispatch(commandBuffer, particleBlockDimensions, particleBlockDimensions, 1);
+
+				vkCmdPipelineBarrier(commandBuffer,
+					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+					0,
+					1, &computeToComputeBarrier,
+					0, nullptr,
+					0, nullptr
+				);
+
+				vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, gridComputePipeline);
+				vkCmdDispatch(commandBuffer, ceilIntDivision(dimensions, GRID_KERNEL_SIZE), ceilIntDivision(dimensions, GRID_KERNEL_SIZE), 1);
+
+				vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, processhistogramComputePipeline);
+				vkCmdDispatch(commandBuffer, ceilIntDivision(paddedParticleBlockDimensions, BLOCK_KERNEL_SIZE), ceilIntDivision(paddedParticleBlockDimensions, BLOCK_KERNEL_SIZE), 1);
+
+				vkCmdPipelineBarrier(commandBuffer,
+					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+					0,
+					1, &computeToComputeBarrier,
+					0, nullptr,
+					0, nullptr
+				);
+
+				// Look into https://research.nvidia.com/publication/2016-03_single-pass-parallel-prefix-scan-decoupled-look-back
+				vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, localsumComputePipeline);
+				vkCmdDispatch(commandBuffer, ceilIntDivision(paddedParticleBlockCount, SUM_KERNEL_SIZE), 1, 1);
+
+				vkCmdPipelineBarrier(commandBuffer,
+					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+					0,
+					1, &computeToComputeBarrier,
+					0, nullptr,
+					0, nullptr
+				);
+
+				vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, partialglobalsumComputePipeline);
+				vkCmdDispatch(commandBuffer, 1, 1, 1);
+
+				vkCmdPipelineBarrier(commandBuffer,
+					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+					0,
+					1, &computeToComputeBarrier,
+					0, nullptr,
+					0, nullptr
+				);
+
+				vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, globalsumComputePipeline);
+				vkCmdDispatch(commandBuffer, ceilIntDivision(paddedParticleBlockCount, SUM_KERNEL_SIZE), 1, 1);
+
+				vkCmdPipelineBarrier(commandBuffer,
+					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+					0,
+					1, &computeToIndirectBarrier,
+					0, nullptr,
+					0, nullptr
+				);
+				//
+
+				vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, scatterComputePipeline);
+				vkCmdDispatchIndirect(commandBuffer, scatterIndirectDispatchBuffer.buffer, 0);
+
+				vkCmdPipelineBarrier(commandBuffer,
+					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+					0,
+					1, &computeToComputeBarrier,
+					0, nullptr,
+					0, nullptr
+				);
+
+				vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, totalextractionComputePipeline);
+				vkCmdDispatch(commandBuffer, 1, 1, 1);
+
+				vkCmdPipelineBarrier(commandBuffer,
+					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+					0,
+					1, &computeToComputeBarrier,
+					0, nullptr,
+					0, nullptr
+				);
+
+				vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, clearhistogramComputePipeline);
+				vkCmdDispatch(commandBuffer, ceilIntDivision(paddedParticleBlockCount, (BLOCK_KERNEL_SIZE * BLOCK_KERNEL_SIZE)), 1, 1);
+
+				vkCmdPipelineBarrier(commandBuffer,
+					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+					0,
+					1, &computeToIndirectBarrier,
+					0, nullptr,
+					0, nullptr
+				);
+
+				currentCompute = (currentCompute + 1) % 2;
+			}
+		}
+		else
 		{
 			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &substepDescriptorSets[currentCompute], 0, nullptr);
-
-			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, g2p2gComputePipeline);
-			vkCmdDispatch(commandBuffer, particleBlockDimensions, particleBlockDimensions, 1);
-
-			vkCmdPipelineBarrier(commandBuffer,
-				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-				0,
-				1, &computeToComputeBarrier,
-				0, nullptr,
-				0, nullptr
-			);
-
-			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, gridComputePipeline);
-			vkCmdDispatch(commandBuffer, ceilIntDivision(dimensions, GRID_KERNEL_SIZE), ceilIntDivision(dimensions, GRID_KERNEL_SIZE), 1);
-
-			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, processhistogramComputePipeline);
-			vkCmdDispatch(commandBuffer, ceilIntDivision(paddedParticleBlockDimensions, BLOCK_KERNEL_SIZE), ceilIntDivision(paddedParticleBlockDimensions, BLOCK_KERNEL_SIZE), 1);
-
-			vkCmdPipelineBarrier(commandBuffer,
-				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-				0,
-				1, &computeToComputeBarrier,
-				0, nullptr,
-				0, nullptr
-			);
-
-			// Look into https://research.nvidia.com/publication/2016-03_single-pass-parallel-prefix-scan-decoupled-look-back
-			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, localsumComputePipeline);
-			vkCmdDispatch(commandBuffer, ceilIntDivision(paddedParticleBlockCount, SUM_KERNEL_SIZE), 1, 1);
-
-			vkCmdPipelineBarrier(commandBuffer,
-				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-				0,
-				1, &computeToComputeBarrier,
-				0, nullptr,
-				0, nullptr
-			);
-
-			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, partialglobalsumComputePipeline);
-			vkCmdDispatch(commandBuffer, 1, 1, 1);
-
-			vkCmdPipelineBarrier(commandBuffer,
-				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-				0,
-				1, &computeToComputeBarrier,
-				0, nullptr,
-				0, nullptr
-			);
-
-			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, globalsumComputePipeline);
-			vkCmdDispatch(commandBuffer, ceilIntDivision(paddedParticleBlockCount, SUM_KERNEL_SIZE), 1, 1);
-
-			vkCmdPipelineBarrier(commandBuffer,
-				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
-				0,
-				1, &computeToIndirectBarrier,
-				0, nullptr,
-				0, nullptr
-			);
-			//
-
-			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, scatterComputePipeline);
-			vkCmdDispatchIndirect(commandBuffer, scatterIndirectDispatchBuffer.buffer, 0);
-
-			vkCmdPipelineBarrier(commandBuffer,
-				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-				0,
-				1, &computeToComputeBarrier,
-				0, nullptr,
-				0, nullptr
-			);
-
-			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, totalextractionComputePipeline);
-			vkCmdDispatch(commandBuffer, 1, 1, 1);
-
-			vkCmdPipelineBarrier(commandBuffer,
-				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-				0,
-				1, &computeToComputeBarrier,
-				0, nullptr,
-				0, nullptr
-			);
-
-			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, clearhistogramComputePipeline);
-			vkCmdDispatch(commandBuffer, ceilIntDivision(paddedParticleBlockCount, (BLOCK_KERNEL_SIZE * BLOCK_KERNEL_SIZE)), 1, 1);
-
-			vkCmdPipelineBarrier(commandBuffer,
-				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
-				0,
-				1, &computeToIndirectBarrier,
-				0, nullptr,
-				0, nullptr
-			);
-
-			currentCompute = (currentCompute + 1) % 2;
 		}
 
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, graphicsscatterComputePipeline);

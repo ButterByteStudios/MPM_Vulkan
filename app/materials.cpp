@@ -10,6 +10,8 @@
 #include <array>
 #include <vector>
 
+// Add bounds checks for safety
+
 Material::Material(uint32_t materialTypeIndex): materialTypeIndex(materialTypeIndex), params{}
 { }
 

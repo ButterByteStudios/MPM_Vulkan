@@ -108,7 +108,7 @@ private:
 
 	std::vector<MaterialType> materialTypes;
 	std::vector<MaterialInstance> items;
-	bool dirty = false;
+	bool dirty = false; // Can be changed to a layout version int64 if there are multiple consumers (like for rendering)
 	uint32_t maxMaterialCount;
 
 private:

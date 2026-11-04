@@ -6,25 +6,36 @@
 
 namespace iml
 {
+	struct KeyState
+	{
+		bool isDown = false;
+		bool wasPressed = false;
+		bool wasReleased = false;
+	};
+
 	class KeyInput
 	{
 	public:
 		KeyInput(std::vector<int> keysToMonitor);
 		~KeyInput();
 
-		// Add stuff like is down and waspressedthisframe
-		bool getIsKeyDown(int key);
+		bool isKeyDown(int key);
+
+		bool wasKeyPressed(int key);
+
+		bool wasKeyReleased(int key);
 
 		bool getIsEnabled() { return isEnabled; }
 		void setIsEnabled(bool value) { isEnabled = value; }
 	private:
-		void setIsKeyDown(int key, bool isDown);
+		void setKeyState(int key, int action);
 
-		std::map<int, bool> keys;
+		std::map<int, KeyState> keys;
 		bool isEnabled;
 
 	public:
 		static void setupKeyInputs(GLFWwindow* window);
+		static void clearFrameValues();
 	private:
 		static void callback(GLFWwindow* window, int key, int scancode, int action, int mods);
 
