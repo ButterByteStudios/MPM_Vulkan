@@ -2016,7 +2016,7 @@ private:
 			bins[binIndex].hardening[pIndex] = hardening;
 			bins[binIndex].blockParticleIndex[pIndex] = blockPIndex[i];
 			bins[binIndex].particleId[pIndex] = i;
-			bins[binIndex].materialId[pIndex] = 0u;
+			bins[binIndex].materialId[pIndex] = 1u;
 			bins[binIndex].particleCount++;
 		}
 

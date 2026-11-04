@@ -389,7 +389,7 @@ void main()
 			mat2 kirchoff;
 			float alpha;
 			
-			switch (materialId) {
+			switch (mats[materialId].materialType) {
 				case NEO_HOOKEAN:
 					kirchoff = neohookeanKirchoff(F, mats[materialId].params[I_LAMBDA], mats[materialId].params[I_MU]);
 					break;

@@ -55,7 +55,7 @@ public:
 
 	MaterialType(uint32_t index, std::vector<InputData> inputs, std::vector<Conversion> conversions);
 
-	MaterialLayout toMaterialLayout(Material mat);
+	MaterialLayout toMaterialLayout(const Material& mat);
 
 	Material initializeMaterial();
 };
@@ -65,9 +65,9 @@ class Material
 {
 public:
 	Parameters params;
-	MaterialType materialType;
+	uint32_t materialTypeIndex;
 
-	Material(MaterialType materialType);
+	Material(uint32_t materialTypeIndex);
 };
 
 // Store material instance data
@@ -75,7 +75,7 @@ class MaterialInstance
 {
 public:
 	MaterialInstance(uint32_t id, Material mat);
-	bool renderInstance(uint32_t& uiId);
+	bool renderInstance(uint32_t& uiId, MaterialType& materialType);
 
 	Material mat;
 private:

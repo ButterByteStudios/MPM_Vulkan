@@ -10,7 +10,7 @@
 #include <array>
 #include <vector>
 
-Material::Material(MaterialType materialType): materialType(materialType), params{}
+Material::Material(uint32_t materialTypeIndex): materialTypeIndex(materialTypeIndex), params{}
 { }
 
 MaterialsManager::MaterialsManager(uint32_t maxMaterialCount) : maxMaterialCount(maxMaterialCount), materialLayouts{}
@@ -40,7 +40,7 @@ void MaterialsManager::setClean()
 void MaterialsManager::updateMaterialLayout(uint32_t index)
 {
     // Update materials
-    MaterialLayout mat = items[index].mat.materialType.toMaterialLayout(items[index].mat);
+    MaterialLayout mat = materialTypes[items[index].mat.materialTypeIndex].toMaterialLayout(items[index].mat);
     materialLayouts[index] = mat;
     setDirty();
 }
@@ -77,7 +77,7 @@ void MaterialsManager::render()
         {
             ImGui::PushID(uiId);
             uiId++;
-            if (items[n].renderInstance(uiId))
+            if (items[n].renderInstance(uiId, materialTypes[items[n].mat.materialTypeIndex]))
             {
                 updateMaterialLayout(n);
             }
@@ -112,7 +112,7 @@ MaterialInstance::MaterialInstance(uint32_t id, Material mat) :
 {
 }
 
-bool MaterialInstance::renderInstance(uint32_t &uiId)
+bool MaterialInstance::renderInstance(uint32_t &uiId, MaterialType& materialType)
 {
     bool changed = false;
 
@@ -129,9 +129,9 @@ bool MaterialInstance::renderInstance(uint32_t &uiId)
         ImGui::PopID();
 
         // Add material type slider
-        for (size_t i = 0; i < mat.materialType.inputs.size(); i++)
+        for (size_t i = 0; i < materialType.inputs.size(); i++)
         {
-            changed |= mat.materialType.inputs[i].renderInput(&mat.params[i], uiId);
+            changed |= materialType.inputs[i].renderInput(&mat.params[i], uiId);
         }
 
         ImGui::TreePop();
@@ -148,7 +148,7 @@ MaterialType::MaterialType(uint32_t index, std::vector<InputData> inputs, std::v
 {
 }
 
-MaterialLayout MaterialType::toMaterialLayout(Material mat)
+MaterialLayout MaterialType::toMaterialLayout(const Material& mat)
 {
     MaterialLayout layout{};
     layout.materialType = index;
@@ -163,7 +163,7 @@ MaterialLayout MaterialType::toMaterialLayout(Material mat)
 
 Material MaterialType::initializeMaterial()
 {
-    Material mat(*this);
+    Material mat(index);
     for (size_t i = 0; i < inputs.size(); i++)
     {
         mat.params[i] = inputs[i].defaultValue;
@@ -172,14 +172,22 @@ Material MaterialType::initializeMaterial()
     return mat;
 }
 
-InputData::InputData(std::string inputName, InputType inputType, float param1, float param2, float defaultValue, uint32_t flags):
-    inputName(std::move(inputName)),
+InputData::InputData(
+    std::string inputName,
+    InputType inputType,
+    float param1,
+    float param2,
+    float defaultValue,
+    uint32_t flags)
+    :
     inputType(inputType),
+    inputName(std::move(inputName)),
+    flags(flags),
     param1(param1),
     param2(param2),
-    defaultValue(defaultValue),
-    flags(flags)
-{ }
+    defaultValue(defaultValue)
+{
+}
 
 bool InputData::renderInput(void* param, uint32_t &uiId)
 {
