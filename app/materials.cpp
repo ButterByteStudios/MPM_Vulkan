@@ -73,7 +73,7 @@ void MaterialsManager::render()
 
     ImGui::Begin("Materials demo");
 
-    if (ImGui::BeginListBox("##00", ImVec2(400, 250)))
+    if (ImGui::BeginListBox("##00", ImVec2(500, 250)))
     {
         for (int n = 0; n < static_cast<uint32_t>(items.size()); n++)
         {
@@ -123,7 +123,10 @@ bool MaterialInstance::renderInstance(uint32_t &uiId, std::vector<MaterialType>&
     if (ImGui::TreeNode((name + "###00").c_str()))
     {
         uint32_t selectedIndex = mat.materialTypeIndex;
-        if (ImGui::BeginCombo("Material Type", typeNames[selectedIndex].c_str()))
+
+        ImGui::Text("Material Type");
+        ImGui::SameLine();
+        if (ImGui::BeginCombo("##Material Type", typeNames[selectedIndex].c_str()))
         {
             for (size_t i = 0; i < typeNames.size(); i++)
             {
@@ -153,7 +156,10 @@ bool MaterialInstance::renderInstance(uint32_t &uiId, std::vector<MaterialType>&
         uiId++;
 
         strncpy(buf, name.c_str(), sizeof(buf) - 1);
-        ImGui::InputText("Name", buf, sizeof(buf));
+
+        ImGui::Text("Name");
+        ImGui::SameLine();
+        ImGui::InputText("##Name", buf, sizeof(buf));
         name = buf;
         ImGui::PopID();
 
@@ -230,16 +236,16 @@ bool InputData::renderInput(void* param, uint32_t &uiId)
     switch (inputType)
     {
         case InputType::INPUT_FLOAT:
-            changed |= ImGui::InputFloat(("##" + inputName).c_str(), (float*)param, param1, param2);
+            changed |= ImGui::InputFloat(("##" + inputName).c_str(), (float*)param, param1, param2, "%.3f", flags);
             break;
         case InputType::SLIDER_FLOAT:
-            changed |= ImGui::SliderFloat(("##" + inputName).c_str(), (float*)param, param1, param2);
+            changed |= ImGui::SliderFloat(("##" + inputName).c_str(), (float*)param, param1, param2, "%.3f", flags);
             break;
         case InputType::INPUT_INT:
-            changed |= ImGui::InputInt(("##" + inputName).c_str(), (int*)param, param1, param2);
+            changed |= ImGui::InputInt(("##" + inputName).c_str(), (int*)param, param1, param2, flags);
             break;
         case InputType::SLIDER_INT:
-            changed |= ImGui::SliderInt(("##" + inputName).c_str(), (int*)param, param1, param2);
+            changed |= ImGui::SliderInt(("##" + inputName).c_str(), (int*)param, param1, param2, "%d", flags);
             break;
     }
     ImGui::PopID();
