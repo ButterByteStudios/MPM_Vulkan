@@ -4,7 +4,7 @@
 
 namespace dsl
 {
-	void DescriptorAllocator::initPool(VkDevice device, uint32_t maxSets, std::span<PoolSizeRatio> poolRatios)
+	void DescriptorAllocator::initPool(VkDevice device, uint32_t maxSets, std::span<PoolSizeRatio> poolRatios, VkDescriptorPoolCreateFlags flags)
 	{
 		std::vector<VkDescriptorPoolSize> poolSizes;
 		for (PoolSizeRatio ratio : poolRatios)
@@ -18,7 +18,7 @@ namespace dsl
 
 		VkDescriptorPoolCreateInfo poolInfo{};
 		poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-		poolInfo.flags = 0;
+		poolInfo.flags = flags;
 		poolInfo.maxSets = maxSets;
 		poolInfo.poolSizeCount = (uint32_t)poolSizes.size();
 		poolInfo.pPoolSizes = poolSizes.data();

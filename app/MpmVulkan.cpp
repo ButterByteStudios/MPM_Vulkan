@@ -449,7 +449,7 @@ private:
 			{ VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 0.0909f }
 		};
 
-		imguiDescriptorAllocator.initPool(device, 11000, sizes);
+		imguiDescriptorAllocator.initPool(device, 11000, sizes, VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT);
 
 		ImGui::CreateContext();
 
@@ -2632,6 +2632,9 @@ private:
 		}
 
 		ImGui_ImplVulkan_Shutdown();
+		ImGui_ImplGlfw_Shutdown();
+
+		ImGui::DestroyContext();
 
 		graphicsDescriptorAllocator.destroyPool(device);
 		substepComputeDescriptorAllocator.destroyPool(device);
