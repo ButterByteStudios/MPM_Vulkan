@@ -37,7 +37,7 @@ const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 800;
 const uint32_t MAX_MATERIAL_COUNT = 10;
 const uint32_t MAX_FRAMES_IN_FLIGHT = 2;
-const uint32_t PARTICLE_COUNT = 1 << 12;
+const uint32_t PARTICLE_COUNT = 1 << 14;
 const uint32_t BIN_KERNEL_SIZE = 1;
 const uint32_t GRID_KERNEL_SIZE = 32;
 const uint32_t BLOCK_KERNEL_SIZE = 16;
@@ -343,7 +343,7 @@ private:
 	float sensitivity = 0.002f;
 	float scrollSensitivity = 0.05f;
 
-	int defaultMaterial = 1;
+	int defaultMaterial = 0;
 	float hardening = -0.01;
 	float dx = 1.0f / dimensions;
 	float dt = 0.00001f;
