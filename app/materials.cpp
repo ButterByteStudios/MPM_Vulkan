@@ -47,9 +47,10 @@ void MaterialsManager::updateMaterialLayout(uint32_t index)
     setDirty();
 }
 
-void MaterialsManager::addMaterialType(std::vector<InputData> inputs, std::vector<Conversion> conversions)
+void MaterialsManager::addMaterialType(std::string name, std::vector<InputData> inputs, std::vector<Conversion> conversions)
 {
     materialTypes.push_back(MaterialType(materialTypes.size(), inputs, conversions));
+    typeNames.push_back(name);
 }
 
 void MaterialsManager::addMaterial(uint32_t type)
@@ -72,14 +73,13 @@ void MaterialsManager::render()
 
     ImGui::Begin("Materials demo");
 
-    static int selectedIndex = -1;
-    if (ImGui::BeginListBox("##00"))
+    if (ImGui::BeginListBox("##00", ImVec2(400, 250)))
     {
         for (int n = 0; n < static_cast<uint32_t>(items.size()); n++)
         {
             ImGui::PushID(uiId);
             uiId++;
-            if (items[n].renderInstance(uiId, materialTypes[items[n].mat.materialTypeIndex]))
+            if (items[n].renderInstance(uiId, materialTypes, typeNames))
             {
                 updateMaterialLayout(n);
             }
@@ -114,7 +114,7 @@ MaterialInstance::MaterialInstance(uint32_t id, Material mat) :
 {
 }
 
-bool MaterialInstance::renderInstance(uint32_t &uiId, MaterialType& materialType)
+bool MaterialInstance::renderInstance(uint32_t &uiId, std::vector<MaterialType>& materialTypes, std::vector<std::string>& typeNames)
 {
     bool changed = false;
 
@@ -122,6 +122,33 @@ bool MaterialInstance::renderInstance(uint32_t &uiId, MaterialType& materialType
     uiId++;
     if (ImGui::TreeNode((name + "###00").c_str()))
     {
+        uint32_t selectedIndex = mat.materialTypeIndex;
+        if (ImGui::BeginCombo("Material Type", typeNames[selectedIndex].c_str()))
+        {
+            for (size_t i = 0; i < typeNames.size(); i++)
+            {
+                bool isSelected = (selectedIndex == i);
+
+                ImGui::PushID(uiId);
+                uiId++;
+                if (ImGui::Selectable(typeNames[i].c_str(), isSelected))
+                {
+                    // If i is different than selected index, change material
+                    if (i != selectedIndex)
+                    {
+                        mat = materialTypes[i].initializeMaterial();
+                        changed = true;
+                    }
+                    selectedIndex = i;
+                }
+                ImGui::PopID();
+
+                if (isSelected)
+                    ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+
         ImGui::PushID(uiId);
         uiId++;
 
@@ -131,9 +158,9 @@ bool MaterialInstance::renderInstance(uint32_t &uiId, MaterialType& materialType
         ImGui::PopID();
 
         // Add material type slider
-        for (size_t i = 0; i < materialType.inputs.size(); i++)
+        for (size_t i = 0; i < materialTypes[mat.materialTypeIndex].inputs.size(); i++)
         {
-            changed |= materialType.inputs[i].renderInput(&mat.params[i], uiId);
+            changed |= materialTypes[mat.materialTypeIndex].inputs[i].renderInput(&mat.params[i], uiId);
         }
 
         ImGui::TreePop();

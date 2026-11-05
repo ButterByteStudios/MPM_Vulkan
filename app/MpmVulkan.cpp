@@ -327,7 +327,7 @@ private:
 	std::vector<val::AllocatedBuffer> cameraBuffers;
 	val::AllocatedBuffer interactionBuffer; // Stores spawn/delete information
 
-	uint32_t dimensions = 32;
+	uint32_t dimensions = 64;
 	uint32_t nodeCount = dimensions * dimensions;
 	uint32_t gridBlockDimensions = dimensions / 4;
 	uint32_t particleBlockDimensions = gridBlockDimensions - 1;
@@ -343,13 +343,11 @@ private:
 	float sensitivity = 0.002f;
 	float scrollSensitivity = 0.05f;
 
-	float E = 1000000;
-	float v = 0.40f;
-	float rho = 1000;
+	int defaultMaterial = 1;
 	float hardening = -0.01;
 	float dx = 1.0f / dimensions;
 	float dt = 0.00001f;
-	float size = 0.5f;
+	float size = 0.4f;
 	uint32_t substeps = 15;
 	glm::vec2 cameraPos = glm::vec2(0);
 	float zoom = 1;
@@ -491,7 +489,7 @@ private:
 			[](const Parameters& p) { return p[1] * p[2] / ((1 + p[2]) * (1 - 2 * p[2])); },
 			[](const Parameters& p) { return p[1] / (2.0 + 2.0 * p[2]); }
 		};
-		materialsManager.addMaterialType(neoHookeanInputs, neoHookeanConversions);
+		materialsManager.addMaterialType("Hyper-elastic", neoHookeanInputs, neoHookeanConversions);
 
 		std::vector<InputData> naccInputs{
 			InputData("Density", InputData::InputType::INPUT_FLOAT, 1.0f, 100.0f, 1000.0f),
@@ -509,7 +507,7 @@ private:
 			[](const Parameters& p) { return (6.0 * glm::sin(p[4])) / (3.0f - glm::sin(p[4])); }, // M
 			[](const Parameters& p) { return p[5]; }, // xi
 		};
-		materialsManager.addMaterialType(naccInputs, naccConversions);
+		materialsManager.addMaterialType("Hyper-elastic plasticity", naccInputs, naccConversions);
 
 		materialsManager.addMaterial(0);
 		materialsManager.addMaterial(1);
@@ -612,7 +610,6 @@ private:
 
 		if (keyInput.wasKeyPressed(GLFW_KEY_SPACE))
 		{
-			std::cout << pausedSimulation;
 			pausedSimulation = !pausedSimulation;
 		}
 	}
@@ -1966,7 +1963,7 @@ private:
 		float pi = 3.14159265358979323846f;
 		float worldR = size * (dimensions / 2) * dx;
 		float volume = worldR * worldR * pi;
-		float totalMass = volume * rho;
+		float totalMass = volume * 1000;
 		float mass = totalMass / PARTICLE_COUNT;
 
 		//std::default_random_engine rndEngine((unsigned)time(nullptr));
@@ -2032,7 +2029,7 @@ private:
 			bins[binIndex].hardening[pIndex] = hardening;
 			bins[binIndex].blockParticleIndex[pIndex] = blockPIndex[i];
 			bins[binIndex].particleId[pIndex] = i;
-			bins[binIndex].materialId[pIndex] = 1u;
+			bins[binIndex].materialId[pIndex] = defaultMaterial;
 			bins[binIndex].particleCount++;
 		}
 

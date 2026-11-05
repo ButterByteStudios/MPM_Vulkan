@@ -70,12 +70,11 @@ public:
 	Material(uint32_t materialTypeIndex);
 };
 
-// Store material instance data
 class MaterialInstance
 {
 public:
 	MaterialInstance(uint32_t id, Material mat);
-	bool renderInstance(uint32_t& uiId, MaterialType& materialType);
+	bool renderInstance(uint32_t& uiId, std::vector<MaterialType>& materialTypes, std::vector<std::string>& typeNames);
 
 	Material mat;
 private:
@@ -93,7 +92,7 @@ public:
 	void setDirty();
 	void setClean();
 
-	void addMaterialType(std::vector<InputData> inputs, std::vector<Conversion> conversions);
+	void addMaterialType(std::string, std::vector<InputData> inputs, std::vector<Conversion> conversions);
 
 	void addMaterial(uint32_t type);
 
@@ -107,6 +106,7 @@ private:
 	void updateMaterialLayout(uint32_t index);
 
 	std::vector<MaterialType> materialTypes;
+	std::vector<std::string> typeNames;
 	std::vector<MaterialInstance> items;
 	bool dirty = false; // Can be changed to a layout version int64 if there are multiple consumers (like for rendering)
 	uint32_t maxMaterialCount;
