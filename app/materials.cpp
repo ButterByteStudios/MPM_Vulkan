@@ -53,7 +53,7 @@ void MaterialsManager::addMaterialType(std::string name, std::vector<InputData> 
     typeNames.push_back(name);
 }
 
-void MaterialsManager::addMaterial(uint32_t type)
+void MaterialsManager::createMaterial(uint32_t type)
 {
     MaterialType materialType = materialTypes[type];
     Material mat = materialType.initializeMaterial();
@@ -92,7 +92,7 @@ void MaterialsManager::render()
 
     if (static_cast<uint32_t>(items.size()) < maxMaterialCount && ImGui::Button("Add"))
     {
-        addMaterial(0);
+        createMaterial(0);
     }
 
     //ImGui::SameLine();
@@ -213,14 +213,16 @@ InputData::InputData(
     float param1,
     float param2,
     float defaultValue,
-    uint32_t flags)
+    uint32_t flags,
+    std::string description)
     :
     inputType(inputType),
     inputName(std::move(inputName)),
     flags(flags),
     param1(param1),
     param2(param2),
-    defaultValue(defaultValue)
+    defaultValue(defaultValue),
+    description(std::move(description))
 {
 }
 
@@ -229,6 +231,10 @@ bool InputData::renderInput(void* param, uint32_t &uiId)
     bool changed = false;
 
     ImGui::Text((inputName + " = ").c_str());
+    if (description != "")
+    {
+        ImGui::SetItemTooltip(description.c_str());
+    }
     ImGui::SameLine();
 
     ImGui::PushID(uiId);

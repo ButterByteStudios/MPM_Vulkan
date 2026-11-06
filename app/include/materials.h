@@ -22,8 +22,9 @@ public:
 	float param1;
 	float param2;
 	float defaultValue;
+	std::string description;
 
-	InputData(std::string inputName, InputType inputType = InputType::INPUT_FLOAT, float param1 = 0.0f, float param2 = 0.0f, float defaultValue = 0.0f, uint32_t flags = 0u);
+	InputData(std::string inputName, InputType inputType = InputType::INPUT_FLOAT, float param1 = 0.0f, float param2 = 0.0f, float defaultValue = 0.0f, uint32_t flags = 0u, std::string description = "");
 
 	bool renderInput(void* param, uint32_t& uiId);
 };
@@ -94,7 +95,7 @@ public:
 
 	void addMaterialType(std::string, std::vector<InputData> inputs, std::vector<Conversion> conversions);
 
-	void addMaterial(uint32_t type);
+	void createMaterial(uint32_t type);
 
 	void render();
 

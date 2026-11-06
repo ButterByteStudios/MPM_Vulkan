@@ -408,7 +408,7 @@ private:
 		double posY;
 		glfwGetCursorPos(window, &posX, &posY);
 		lastMousePos = glm::vec2(posX, posY);
-	}
+	} 
 
 	void initVulkan()
 	{
@@ -475,14 +475,11 @@ private:
 	void initGui()
 	{
 		materialsManager = MaterialsManager(MAX_MATERIAL_COUNT);
-		//Conversion k = [](const Parameters& p) { return p[1] / (3.0 - 6.0 * p[2]); };
-		//Conversion mu = [](const Parameters& p) { return p[1] / (2.0 + 2.0 * p[2]); };
-		//Conversion lambda = [](const Parameters& p) { return p[1] * p[2] / ((1 + p[2]) * (1 - 2 * p[2])); };
 
 		std::vector<InputData> neoHookeanInputs{
-			InputData("Density", InputData::InputType::INPUT_FLOAT, 1.0f, 100.0f, 1000.0f),
-			InputData("E", InputData::InputType::INPUT_FLOAT, 1.0f, 100.0f, 1000000.0f),
-			InputData("v", InputData::InputType::SLIDER_FLOAT, 0.0f, 0.49f, 0.4f)
+			InputData("Density", InputData::InputType::INPUT_FLOAT, 1.0f, 100.0f, 1000.0f, 0, "Density in kg/m^2"),
+			InputData("E", InputData::InputType::INPUT_FLOAT, 1.0f, 100.0f, 1000000.0f, 0, "Young's modulus: Stiffness of material"),
+			InputData("v", InputData::InputType::SLIDER_FLOAT, 0.0f, 0.49f, 0.4f, 0, "Poisson ratio: Incompressability of material")
 		};
 		std::vector<Conversion> neoHookeanConversions{
 			[](const Parameters& p) { return p[0]; },
@@ -492,25 +489,25 @@ private:
 		materialsManager.addMaterialType("Hyper-elastic", neoHookeanInputs, neoHookeanConversions);
 
 		std::vector<InputData> naccInputs{
-			InputData("Density", InputData::InputType::INPUT_FLOAT, 1.0f, 100.0f, 1000.0f),
-			InputData("E", InputData::InputType::INPUT_FLOAT, 1.0f, 100.0f, 1000000.0f),
-			InputData("v", InputData::InputType::SLIDER_FLOAT, 0.0f, 0.49f, 0.4f),
-			InputData("beta", InputData::InputType::SLIDER_FLOAT, 0.0f, 2.0f, 1.0f),
-			InputData("friction angle", InputData::InputType::SLIDER_FLOAT, 0.0f, 90.0f, 40.0f),
-			InputData("xi", InputData::InputType::SLIDER_FLOAT, 0.0f, 2.0f, 0.8f)
+			InputData("Density", InputData::InputType::INPUT_FLOAT, 1.0f, 100.0f, 1000.0f, 0, "Density in kg/m^2"),
+			InputData("E", InputData::InputType::INPUT_FLOAT, 1.0f, 100.0f, 1000000.0f, 0, "Young's modulus: Stiffness of material"),
+			InputData("v", InputData::InputType::SLIDER_FLOAT, 0.0f, 0.49f, 0.4f, 0, "Poisson ratio: Incompressability of material"),
+			InputData("beta", InputData::InputType::SLIDER_FLOAT, 0.0f, 3.0f, 1.0f, 0, "The cohesion parameter"),
+			InputData("friction angle", InputData::InputType::SLIDER_FLOAT, 1.0f, 90.0f, 40.0f, 0, "Internal friction angle"),
+			InputData("xi", InputData::InputType::SLIDER_FLOAT, 0.0f, 8.0f, 0.8f, 0, "Hardening sensitivity parameter")
 		};
 		std::vector<Conversion> naccConversions{
 			[](const Parameters& p) { return p[0]; }, // rho
 			[](const Parameters& p) { return p[1] / (3.0 - 6.0 * p[2]); }, // E and v to k
 			[](const Parameters& p) { return p[1] / (2.0 + 2.0 * p[2]); }, // E and v to mu
 			[](const Parameters& p) { return p[3]; }, // beta
-			[](const Parameters& p) { return (6.0 * glm::sin(p[4])) / (3.0f - glm::sin(p[4])); }, // M
+			[](const Parameters& p) { return (6.0 * glm::sin(glm::radians(p[4]))) / (3.0f - glm::sin(glm::radians(p[4]))); }, // M
 			[](const Parameters& p) { return p[5]; }, // xi
 		};
 		materialsManager.addMaterialType("Hyper-elastic plasticity", naccInputs, naccConversions);
 
-		materialsManager.addMaterial(0);
-		materialsManager.addMaterial(1);
+		materialsManager.createMaterial(0);
+		materialsManager.createMaterial(1);
 	}
 
 	void createInstance()
@@ -602,7 +599,7 @@ private:
 		int x = keyInput.isKeyDown(GLFW_KEY_D) - keyInput.isKeyDown(GLFW_KEY_A);
 		
 		glm::vec2 mousePos = glm::vec2((float)mouseInput.posX, (float)mouseInput.posY);
-		glm::vec2 deltaMouse = mouseInput.getIsButtonDown(GLFW_MOUSE_BUTTON_LEFT) ? lastMousePos - mousePos : glm::vec2(0);
+		glm::vec2 deltaMouse = mouseInput.getIsButtonDown(GLFW_MOUSE_BUTTON_RIGHT) ? lastMousePos - mousePos : glm::vec2(0);
 		lastMousePos = mousePos;
 		zoom += (mouseInput.scrollDY * scrollSensitivity) * zoom;
 		cameraPos += deltaMouse * sensitivity / zoom;
