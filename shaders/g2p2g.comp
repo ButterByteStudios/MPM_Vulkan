@@ -253,19 +253,18 @@ void main()
 			float rho = mats[materialId].params[I_RHO];
 
 			mat2 kirchoff;
-			float alpha = bins[binIndex].hardening[pIndex];;
 			
 			switch (mats[materialId].materialType) {
 				case NEO_HOOKEAN:
 					kirchoff = neohookeanKirchoff(F, mats[materialId].params[I_LAMBDA], mats[materialId].params[I_MU]);
 					break;
 				case NACC:
+					float alpha = bins[binIndex].hardening[pIndex];
 					naccProject(F, mats[materialId].params[I_K], mats[materialId].params[I_MU], mats[materialId].params[I_BETA], mats[materialId].params[I_M], mats[materialId].params[I_XI], alpha, kirchoff);
 					bins[binIndex].hardening[pIndex] = alpha;
 					break;
 				case NADP:
 					nadpProject(F, mats[materialId].params[I_K], mats[materialId].params[I_MU], mats[materialId].params[I_CF], mats[materialId].params[I_CC], kirchoff);
-					bins[binIndex].hardening[pIndex] = alpha;
 					break;
 			}
 

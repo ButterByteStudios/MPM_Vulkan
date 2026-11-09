@@ -166,58 +166,61 @@ void nadpProject(
 	// Calculating trial values
 	float Je_tr = sigma[0] * sigma[1];
 	vec2 sigmaSqr = sigma * sigma;
-	float sigmaSqr_trace = (sigmaSqr[0] + sigmaSqr[1]) * 0.5;
+	float be_trace = sigmaSqr[0] + sigmaSqr[1];
 
-	vec2 s_tr = (mu / Je_tr) * (sigmaSqr - sigmaSqr_trace);
+    // tau = s_tr - p_tr * I
+    // s = dev(tau). Tau = mu/J^E_tr * dev(b^E_tr) + 0.5*k*((J^E_tr)^2 - 1.0) * I
+    // The first term defines the deviatoric part of tau while the second term defines the volumetric part. s = first term (diagonal in principle space)
+	vec2 s_tr = (mu / Je_tr) * (sigmaSqr - be_trace * 0.5);
 	float s_norm = length(s_tr);
 
+    // p = -trace(tau_tr)/2
     float p_tr = -0.5 * k * (Je_tr * Je_tr - 1.0);
 
-    float s_target = c_c + 2.0 * c_f * p_tr;
+    // yield = c_f * trace(tau) + ||dev(tau)|| - c_c
+    // Simple seperation. No negative pressure allowed means seperation is not resisted by frictionm but only by cohesion
+    // remove clamp and have some handling for if s_target is lower that 0. If this is the case, no tensile strength should be there
+    float s_target = c_c + 2.0 * c_f * max(p_tr, 0.0);
 
+    // s_target = y - ||dev(tau)||, so y <= 0 becomes y - ||dev(tau)|| <= -||dev(tau)|| which is s_target <= -s_norm or s_norm <= s_target
     if (s_norm <= s_target)
     {
+        // Tau = s - p converted from principle space to worldspace
         tau = U * mat2(s_tr[0] - p_tr, 0.0, 0.0, s_tr[1] - p_tr) * transpose(U);
         return;
     }
 
-    // Case 1: Project to max tip of the YS
-    if (s_target <= 0.0)
-    {
-        float p_apex = -c_c / (2.0 * c_f);
-        float Je_apex = sqrt(1.0 - 2.0 * p_apex / k);
+    // Case 1: Project to max tip of the YS (avoided with pressure clamp)
+    //if (s_target <= 0.0)
+    //{
+    //    float p_apex = -c_c / (2.0 * c_f);
+    //    float Je_apex = sqrt(1.0 - 2.0 * p_apex / k);
+    //
+    //    vec2 sigma_new = vec2(sqrt(Je_apex));
+    //    Fe_trial = U * mat2(
+    //        sigma_new[0], 0.0,
+    //        0.0, sigma_new[1]
+    //    ) * transpose(V);
+    //
+    //    tau = -p_apex * mat2(1.0);
+    //    return;
+    //}
 
-        vec2 sigma_new = vec2(sqrt(Je_apex));
+    // Non associated shear correction (with volume preservation)
+    float d_new = Je_tr * s_target / (sqrt(2.0) * mu);
+    float t_new = sqrt(Je_tr * Je_tr + d_new * d_new);
 
-        Fe_trial = U * mat2(
-            sigma_new[0], 0.0,
-            0.0, sigma_new[1]
-        ) * transpose(V);
-
-        tau = -p_apex * mat2(1.0);
-        return;
-    }
-
-    float trace_b = sigmaSqr[0] + sigmaSqr[1];
-
-    float delta_gamma = (s_norm - s_target) * Je_tr * trace_b / mu;
-
-    vec2 be_new = sigmaSqr - (delta_gamma / trace_b) * (s_tr / s_norm);
+    vec2 be_new =
+        t_new + (Je_tr / mu) * (s_target / s_norm) * s_tr;
 
     vec2 sigma_new = sqrt(be_new);
 
-    mat2 Sigma_new = mat2(
+    Fe_trial = U * mat2(
         sigma_new[0], 0.0,
         0.0, sigma_new[1]
-    );
+    ) * transpose(V);
 
-    Fe_trial = U * Sigma_new * transpose(V);
-
-    float be_trace =
-        0.5 * (be_new[0] + be_new[1]);
-
-    vec2 s_new =
-        (mu / Je_tr) * (be_new - be_trace);
+    vec2 s_new = (mu / Je_tr) * (be_new - t_new);
 
     mat2 tau_principal = mat2(
         s_new[0] - p_tr, 0.0,

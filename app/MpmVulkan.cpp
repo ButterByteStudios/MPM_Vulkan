@@ -345,7 +345,7 @@ private:
 	float sensitivity = 0.002f;
 	float scrollSensitivity = 0.05f;
 
-	int defaultMaterial = 0;
+	int defaultMaterial = 2;
 	float hardening = -0.01;
 	float dx = 1.0f / dimensions;
 	float dt = 0.00001f;
@@ -592,8 +592,8 @@ private:
 			uil::InputData("Density", uil::InputData::InputType::INPUT_FLOAT, 1.0f, 100.0f, 1000.0f, 0, "Density in kg/m^2"),
 			uil::InputData("E", uil::InputData::InputType::INPUT_FLOAT, 1.0f, 100.0f, 10000000.0f, 0, "Young's modulus: Stiffness of material"),
 			uil::InputData("v", uil::InputData::InputType::SLIDER_FLOAT, 0.0f, 0.49f, 0.4f, 0, "Poisson ratio: Incompressability of material"),
-			uil::InputData("c_f", uil::InputData::InputType::SLIDER_FLOAT, 0.0f, 10.0f, 1.0f, 0, "friction coefficient"),
-			uil::InputData("c_c", uil::InputData::InputType::SLIDER_FLOAT, 0.0f, 10.0f, 1.0f, 0, "cohesion coefficient")
+			uil::InputData("c_f", uil::InputData::InputType::SLIDER_FLOAT, 0.0f, 2.0f, 0.4f, 0, "friction coefficient"),
+			uil::InputData("c_c", uil::InputData::InputType::SLIDER_FLOAT, 0.0f, 100000.0f, 1.0f, 0, "cohesion coefficient")
 		};
 		std::vector<uil::Conversion> nadpConversions{
 			[](const uil::Parameters& p) { return p[0]; }, // rho
