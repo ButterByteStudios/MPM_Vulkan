@@ -15,8 +15,8 @@
 #include <iml/keyInput.h>
 #include <iml/mouseInput.h>
 #include <val/vulkanAllocator.h>
-
-#include <materials.h>
+#include <uil/UIManager.h>
+#include <uil/MaterialsMenu.h>
 
 #include <filesystem>
 #include <iostream>
@@ -32,12 +32,13 @@
 #include <fstream>
 #include <array>
 #include <random>
+#include <optional>
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 800;
 const uint32_t MAX_MATERIAL_COUNT = 10;
 const uint32_t MAX_FRAMES_IN_FLIGHT = 2;
-const uint32_t PARTICLE_COUNT = 1 << 14;
+const uint32_t PARTICLE_COUNT = 1 << 16;
 const uint32_t BIN_KERNEL_SIZE = 1;
 const uint32_t GRID_KERNEL_SIZE = 32;
 const uint32_t BLOCK_KERNEL_SIZE = 16;
@@ -297,7 +298,8 @@ private:
 	std::vector<VkSemaphore> computeFinishedSemaphores;
 	std::vector<VkFence> computeInFlightFences;
 
-	MaterialsManager materialsManager;
+	std::optional<uil::MaterialsManager> materialsManager;
+	std::optional<uil::UIManager> uiManager;
 
 	bool framebufferResized = false;
 	bool pausedSimulation = true;
@@ -327,7 +329,7 @@ private:
 	std::vector<val::AllocatedBuffer> cameraBuffers;
 	val::AllocatedBuffer interactionBuffer; // Stores spawn/delete information
 
-	uint32_t dimensions = 64;
+	uint32_t dimensions = 128;
 	uint32_t nodeCount = dimensions * dimensions;
 	uint32_t gridBlockDimensions = dimensions / 4;
 	uint32_t particleBlockDimensions = gridBlockDimensions - 1;
@@ -364,11 +366,11 @@ private:
 			int width, height;
 			glfwGetFramebufferSize(window, &width, &height);
 
-			materialsManager.render();
+			uiManager->render();
 
-			if (materialsManager.isDirty())
+			if (materialsManager->isDirty())
 			{
-				memcpy(materialStagingBuffer.mapped, materialsManager.materialLayouts.data(), sizeof(MaterialLayout) * MAX_MATERIAL_COUNT);
+				memcpy(materialStagingBuffer.mapped, materialsManager->materialLayouts.data(), sizeof(uil::MaterialLayout) * MAX_MATERIAL_COUNT);
 			}
 
 			ImGuiIO& io = ImGui::GetIO();
@@ -470,44 +472,142 @@ private:
 		initInfo.PipelineInfoMain = pipelineInfo;
 
 		ImGui_ImplVulkan_Init(&initInfo);
+		
+		setupImGuiStyle(true, 0.5f);
+	}
+
+	void setupImGuiStyle(bool bStyleDark_, float alpha_)
+	{
+		ImGuiStyle& style = ImGui::GetStyle();
+
+		// light style from Pacôme Danhiez (user itamago) https://github.com/ocornut/imgui/pull/511#issuecomment-175719267
+		style.Alpha = 1.0f;
+		style.FrameRounding = 3.0f;
+		style.Colors[ImGuiCol_Text] = ImVec4(0.00f, 0.00f, 0.00f, 1.00f);
+		style.Colors[ImGuiCol_TextDisabled] = ImVec4(0.60f, 0.60f, 0.60f, 1.00f);
+		style.Colors[ImGuiCol_WindowBg] = ImVec4(0.94f, 0.94f, 0.94f, 0.94f);
+		style.Colors[ImGuiCol_PopupBg] = ImVec4(1.00f, 1.00f, 1.00f, 0.94f);
+		style.Colors[ImGuiCol_Border] = ImVec4(0.00f, 0.00f, 0.00f, 0.39f);
+		style.Colors[ImGuiCol_BorderShadow] = ImVec4(1.00f, 1.00f, 1.00f, 0.10f);
+		style.Colors[ImGuiCol_FrameBg] = ImVec4(1.00f, 1.00f, 1.00f, 0.94f);
+		style.Colors[ImGuiCol_FrameBgHovered] = ImVec4(0.26f, 0.59f, 0.98f, 0.40f);
+		style.Colors[ImGuiCol_FrameBgActive] = ImVec4(0.26f, 0.59f, 0.98f, 0.67f);
+		style.Colors[ImGuiCol_TitleBg] = ImVec4(0.96f, 0.96f, 0.96f, 1.00f);
+		style.Colors[ImGuiCol_TitleBgCollapsed] = ImVec4(1.00f, 1.00f, 1.00f, 0.51f);
+		style.Colors[ImGuiCol_TitleBgActive] = ImVec4(0.82f, 0.82f, 0.82f, 1.00f);
+		style.Colors[ImGuiCol_MenuBarBg] = ImVec4(0.86f, 0.86f, 0.86f, 1.00f);
+		style.Colors[ImGuiCol_ScrollbarBg] = ImVec4(0.98f, 0.98f, 0.98f, 0.53f);
+		style.Colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.69f, 0.69f, 0.69f, 1.00f);
+		style.Colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.59f, 0.59f, 0.59f, 1.00f);
+		style.Colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.49f, 0.49f, 0.49f, 1.00f);
+		style.Colors[ImGuiCol_CheckMark] = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
+		style.Colors[ImGuiCol_SliderGrab] = ImVec4(0.24f, 0.52f, 0.88f, 1.00f);
+		style.Colors[ImGuiCol_SliderGrabActive] = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
+		style.Colors[ImGuiCol_Button] = ImVec4(0.26f, 0.59f, 0.98f, 0.40f);
+		style.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
+		style.Colors[ImGuiCol_ButtonActive] = ImVec4(0.06f, 0.53f, 0.98f, 1.00f);
+		style.Colors[ImGuiCol_Header] = ImVec4(0.26f, 0.59f, 0.98f, 0.31f);
+		style.Colors[ImGuiCol_HeaderHovered] = ImVec4(0.26f, 0.59f, 0.98f, 0.80f);
+		style.Colors[ImGuiCol_HeaderActive] = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
+		style.Colors[ImGuiCol_ResizeGrip] = ImVec4(1.00f, 1.00f, 1.00f, 0.50f);
+		style.Colors[ImGuiCol_ResizeGripHovered] = ImVec4(0.26f, 0.59f, 0.98f, 0.67f);
+		style.Colors[ImGuiCol_ResizeGripActive] = ImVec4(0.26f, 0.59f, 0.98f, 0.95f);
+		style.Colors[ImGuiCol_PlotLines] = ImVec4(0.39f, 0.39f, 0.39f, 1.00f);
+		style.Colors[ImGuiCol_PlotLinesHovered] = ImVec4(1.00f, 0.43f, 0.35f, 1.00f);
+		style.Colors[ImGuiCol_PlotHistogram] = ImVec4(0.90f, 0.70f, 0.00f, 1.00f);
+		style.Colors[ImGuiCol_PlotHistogramHovered] = ImVec4(1.00f, 0.60f, 0.00f, 1.00f);
+		style.Colors[ImGuiCol_TextSelectedBg] = ImVec4(0.26f, 0.59f, 0.98f, 0.35f);
+
+		if (bStyleDark_)
+		{
+			for (int i = 0; i <= ImGuiCol_COUNT; i++)
+			{
+				ImVec4& col = style.Colors[i];
+				float H, S, V;
+				ImGui::ColorConvertRGBtoHSV(col.x, col.y, col.z, H, S, V);
+
+				if (S < 0.1f)
+				{
+					V = 1.0f - V;
+				}
+				ImGui::ColorConvertHSVtoRGB(H, S, V, col.x, col.y, col.z);
+				if (col.w < 1.00f)
+				{
+					col.w *= alpha_;
+				}
+			}
+		}
+		else
+		{
+			for (int i = 0; i <= ImGuiCol_COUNT; i++)
+			{
+				ImVec4& col = style.Colors[i];
+				if (col.w < 1.00f)
+				{
+					col.x *= alpha_;
+					col.y *= alpha_;
+					col.z *= alpha_;
+					col.w *= alpha_;
+				}
+			}
+		}
 	}
 
 	void initGui()
 	{
-		materialsManager = MaterialsManager(MAX_MATERIAL_COUNT);
+		materialsManager.emplace(uil::MaterialsManager(MAX_MATERIAL_COUNT));
+		uiManager.emplace(uil::UIManager(materialsManager.value()));
 
-		std::vector<InputData> neoHookeanInputs{
-			InputData("Density", InputData::InputType::INPUT_FLOAT, 1.0f, 100.0f, 1000.0f, 0, "Density in kg/m^2"),
-			InputData("E", InputData::InputType::INPUT_FLOAT, 1.0f, 100.0f, 1000000.0f, 0, "Young's modulus: Stiffness of material"),
-			InputData("v", InputData::InputType::SLIDER_FLOAT, 0.0f, 0.49f, 0.4f, 0, "Poisson ratio: Incompressability of material")
+		std::vector<uil::InputData> neoHookeanInputs{
+			uil::InputData("Density", uil::InputData::InputType::INPUT_FLOAT, 1.0f, 100.0f, 1000.0f, 0, "Density in kg/m^2"),
+			uil::InputData("E", uil::InputData::InputType::INPUT_FLOAT, 1.0f, 100.0f, 1000000.0f, 0, "Young's modulus: Stiffness of material"),
+			uil::InputData("v", uil::InputData::InputType::SLIDER_FLOAT, 0.0f, 0.49f, 0.4f, 0, "Poisson ratio: Incompressability of material")
 		};
-		std::vector<Conversion> neoHookeanConversions{
-			[](const Parameters& p) { return p[0]; },
-			[](const Parameters& p) { return p[1] * p[2] / ((1 + p[2]) * (1 - 2 * p[2])); },
-			[](const Parameters& p) { return p[1] / (2.0 + 2.0 * p[2]); }
+		std::vector<uil::Conversion> neoHookeanConversions{
+			[](const uil::Parameters& p) { return p[0]; },
+			[](const uil::Parameters& p) { return p[1] * p[2] / ((1 + p[2]) * (1 - 2 * p[2])); },
+			[](const uil::Parameters& p) { return p[1] / (2.0 + 2.0 * p[2]); }
 		};
-		materialsManager.addMaterialType("Hyper-elastic", neoHookeanInputs, neoHookeanConversions);
+		materialsManager->addMaterialType("Hyper-elastic", neoHookeanInputs, neoHookeanConversions);
 
-		std::vector<InputData> naccInputs{
-			InputData("Density", InputData::InputType::INPUT_FLOAT, 1.0f, 100.0f, 1000.0f, 0, "Density in kg/m^2"),
-			InputData("E", InputData::InputType::INPUT_FLOAT, 1.0f, 100.0f, 1000000.0f, 0, "Young's modulus: Stiffness of material"),
-			InputData("v", InputData::InputType::SLIDER_FLOAT, 0.0f, 0.49f, 0.4f, 0, "Poisson ratio: Incompressability of material"),
-			InputData("beta", InputData::InputType::SLIDER_FLOAT, 0.0f, 3.0f, 1.0f, 0, "The cohesion parameter"),
-			InputData("friction angle", InputData::InputType::SLIDER_FLOAT, 1.0f, 90.0f, 40.0f, 0, "Internal friction angle"),
-			InputData("xi", InputData::InputType::SLIDER_FLOAT, 0.0f, 8.0f, 0.8f, 0, "Hardening sensitivity parameter")
+		std::vector<uil::InputData> naccInputs{
+			uil::InputData("Density", uil::InputData::InputType::INPUT_FLOAT, 1.0f, 100.0f, 1000.0f, 0, "Density in kg/m^2"),
+			uil::InputData("E", uil::InputData::InputType::INPUT_FLOAT, 1.0f, 100.0f, 10000000.0f, 0, "Young's modulus: Stiffness of material"),
+			uil::InputData("v", uil::InputData::InputType::SLIDER_FLOAT, 0.0f, 0.49f, 0.4f, 0, "Poisson ratio: Incompressability of material"),
+			uil::InputData("beta", uil::InputData::InputType::SLIDER_FLOAT, 0.0f, 2.0f, 1.0f, 0, "The cohesion parameter"),
+			uil::InputData("friction angle", uil::InputData::InputType::SLIDER_FLOAT, 1.0f, 90.0f, 40.0f, 0, "Internal friction angle"),
+			uil::InputData("xi", uil::InputData::InputType::SLIDER_FLOAT, 0.0f, 4.0f, 0.8f, 0, "Hardening sensitivity parameter")
 		};
-		std::vector<Conversion> naccConversions{
-			[](const Parameters& p) { return p[0]; }, // rho
-			[](const Parameters& p) { return p[1] / (3.0 - 6.0 * p[2]); }, // E and v to k
-			[](const Parameters& p) { return p[1] / (2.0 + 2.0 * p[2]); }, // E and v to mu
-			[](const Parameters& p) { return p[3]; }, // beta
-			[](const Parameters& p) { return (6.0 * glm::sin(glm::radians(p[4]))) / (3.0f - glm::sin(glm::radians(p[4]))); }, // M
-			[](const Parameters& p) { return p[5]; }, // xi
+		std::vector<uil::Conversion> naccConversions{
+			[](const uil::Parameters& p) { return p[0]; }, // rho
+			[](const uil::Parameters& p) { return p[1] / (3.0 - 6.0 * p[2]); }, // E and v to k
+			[](const uil::Parameters& p) { return p[1] / (2.0 + 2.0 * p[2]); }, // E and v to mu
+			[](const uil::Parameters& p) { return p[3]; }, // beta
+			[](const uil::Parameters& p) { return (6.0 * glm::sin(glm::radians(p[4]))) / (3.0f - glm::sin(glm::radians(p[4]))); }, // M
+			[](const uil::Parameters& p) { return p[5]; }, // xi
 		};
-		materialsManager.addMaterialType("Hyper-elastic plasticity", naccInputs, naccConversions);
+		materialsManager->addMaterialType("nacc plasticity", naccInputs, naccConversions);
 
-		materialsManager.createMaterial(0);
-		materialsManager.createMaterial(1);
+		std::vector<uil::InputData> nadpInputs{
+			uil::InputData("Density", uil::InputData::InputType::INPUT_FLOAT, 1.0f, 100.0f, 1000.0f, 0, "Density in kg/m^2"),
+			uil::InputData("E", uil::InputData::InputType::INPUT_FLOAT, 1.0f, 100.0f, 10000000.0f, 0, "Young's modulus: Stiffness of material"),
+			uil::InputData("v", uil::InputData::InputType::SLIDER_FLOAT, 0.0f, 0.49f, 0.4f, 0, "Poisson ratio: Incompressability of material"),
+			uil::InputData("c_f", uil::InputData::InputType::SLIDER_FLOAT, 0.0f, 10.0f, 1.0f, 0, "friction coefficient"),
+			uil::InputData("c_c", uil::InputData::InputType::SLIDER_FLOAT, 0.0f, 10.0f, 1.0f, 0, "cohesion coefficient")
+		};
+		std::vector<uil::Conversion> nadpConversions{
+			[](const uil::Parameters& p) { return p[0]; }, // rho
+			[](const uil::Parameters& p) { return p[1] / (3.0 - 6.0 * p[2]); }, // E and v to k
+			[](const uil::Parameters& p) { return p[1] / (2.0 + 2.0 * p[2]); }, // E and v to mu
+			[](const uil::Parameters& p) { return p[3]; }, // c_f
+			[](const uil::Parameters& p) { return p[4]; }, // c_c
+			[](const uil::Parameters& p) { return p[5]; }, // xi
+		};
+		materialsManager->addMaterialType("nadp plasticity", nadpInputs, nadpConversions);
+						
+		materialsManager->createMaterial(0);
+		materialsManager->createMaterial(1);
+		materialsManager->createMaterial(2);
 	}
 
 	void createInstance()
@@ -1393,7 +1493,7 @@ private:
 			VkDescriptorBufferInfo materialsBufferInfo{};
 			materialsBufferInfo.buffer = materialsBuffer.buffer;
 			materialsBufferInfo.offset = 0;
-			materialsBufferInfo.range = sizeof(MaterialLayout) * MAX_MATERIAL_COUNT;
+			materialsBufferInfo.range = sizeof(uil::MaterialLayout) * MAX_MATERIAL_COUNT;
 
 			binding = 10;
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1721,14 +1821,14 @@ private:
 		transferToComputeBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 		transferToComputeBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
-		if (materialsManager.isDirty())
+		if (materialsManager->isDirty())
 		{
-			materialsManager.setClean();
+			materialsManager->setClean();
 
 			VkBufferCopy copyRegion{};
 			copyRegion.srcOffset = 0;
 			copyRegion.dstOffset = 0;
-			copyRegion.size = sizeof(MaterialLayout) * MAX_MATERIAL_COUNT;
+			copyRegion.size = sizeof(uil::MaterialLayout) * MAX_MATERIAL_COUNT;
 			vkCmdCopyBuffer(commandBuffer, materialStagingBuffer.buffer, materialsBuffer.buffer, 1, &copyRegion);
 
 			vkCmdPipelineBarrier(commandBuffer,
@@ -2201,7 +2301,7 @@ private:
 		//
 
 		// Materials buffer
-		bufferSize = sizeof(MaterialLayout) * MAX_MATERIAL_COUNT;
+		bufferSize = sizeof(uil::MaterialLayout) * MAX_MATERIAL_COUNT;
 
 		materialsBuffer = bufferAllocator.create({
 			bufferSize,
@@ -2209,7 +2309,7 @@ private:
 			val::BufferLifetime::Static
 			});
 		// Staging buffer for materials
-		bufferSize = sizeof(MaterialLayout) * MAX_MATERIAL_COUNT;
+		bufferSize = sizeof(uil::MaterialLayout) * MAX_MATERIAL_COUNT;
 		
 		materialStagingBuffer = bufferAllocator.create({
 			bufferSize,

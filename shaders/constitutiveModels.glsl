@@ -146,3 +146,83 @@ void naccProject(
 	vec2 s_new = (mu / Je_tr) * (be_new - be_trace);
 	tau = U * mat2(s_new[0] - p_tr, 0.0, 0.0, s_new[1] - p_tr) * transpose(U);
 }
+
+void nadpProject(
+    inout mat2 Fe_trial,
+    float k,
+    float mu,
+    float c_f,
+    float c_c,
+    out mat2 tau
+)
+{
+    mat2 I = mat2(1.0);
+
+	mat2 U, V;
+    vec2 sigma;
+
+    svd(Fe_trial, U, sigma, V);
+
+	// Calculating trial values
+	float Je_tr = sigma[0] * sigma[1];
+	vec2 sigmaSqr = sigma * sigma;
+	float sigmaSqr_trace = (sigmaSqr[0] + sigmaSqr[1]) * 0.5;
+
+	vec2 s_tr = (mu / Je_tr) * (sigmaSqr - sigmaSqr_trace);
+	float s_norm = length(s_tr);
+
+    float p_tr = -0.5 * k * (Je_tr * Je_tr - 1.0);
+
+    float s_target = c_c + 2.0 * c_f * p_tr;
+
+    if (s_norm <= s_target)
+    {
+        tau = U * mat2(s_tr[0] - p_tr, 0.0, 0.0, s_tr[1] - p_tr) * transpose(U);
+        return;
+    }
+
+    // Case 1: Project to max tip of the YS
+    if (s_target <= 0.0)
+    {
+        float p_apex = -c_c / (2.0 * c_f);
+        float Je_apex = sqrt(1.0 - 2.0 * p_apex / k);
+
+        vec2 sigma_new = vec2(sqrt(Je_apex));
+
+        Fe_trial = U * mat2(
+            sigma_new[0], 0.0,
+            0.0, sigma_new[1]
+        ) * transpose(V);
+
+        tau = -p_apex * mat2(1.0);
+        return;
+    }
+
+    float trace_b = sigmaSqr[0] + sigmaSqr[1];
+
+    float delta_gamma = (s_norm - s_target) * Je_tr * trace_b / mu;
+
+    vec2 be_new = sigmaSqr - (delta_gamma / trace_b) * (s_tr / s_norm);
+
+    vec2 sigma_new = sqrt(be_new);
+
+    mat2 Sigma_new = mat2(
+        sigma_new[0], 0.0,
+        0.0, sigma_new[1]
+    );
+
+    Fe_trial = U * Sigma_new * transpose(V);
+
+    float be_trace =
+        0.5 * (be_new[0] + be_new[1]);
+
+    vec2 s_new =
+        (mu / Je_tr) * (be_new - be_trace);
+
+    mat2 tau_principal = mat2(
+        s_new[0] - p_tr, 0.0,
+        0.0, s_new[1] - p_tr
+    );
+
+    tau = U * tau_principal * transpose(U);
+}
