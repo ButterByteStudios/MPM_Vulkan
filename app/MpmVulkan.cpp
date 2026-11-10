@@ -142,42 +142,6 @@ struct alignas(8) Bin
 	// Max alignment = 8, so pad till nearest multiple of 8
 };
 
-struct alignas(16) Particle
-{
-	glm::vec4 color; // 16
-	glm::vec2 position; // 8
-	// Max alignment = 16, so pad till nearest multiple of 16
-	// Total size 16 + 8 + 8(pad) = 32
-
-	static VkVertexInputBindingDescription getBindingDescription()
-	{
-		VkVertexInputBindingDescription bindingDescription{};
-		bindingDescription.binding = 0;
-		bindingDescription.stride = sizeof(Particle);
-		bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-		return bindingDescription;
-	}
-
-	static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions()
-	{
-		std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
-
-		attributeDescriptions[0].binding = 0;
-		attributeDescriptions[0].location = 0;
-		attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
-		attributeDescriptions[0].offset = offsetof(Particle, position);
-
-		attributeDescriptions[1].binding = 0;
-		attributeDescriptions[1].location = 1;
-		attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-		attributeDescriptions[1].offset = offsetof(Particle, color);
-
-		return attributeDescriptions;
-	}
-};
-static_assert(sizeof(Particle) == 32);
-
 VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo,
 	const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger)
 {
@@ -286,7 +250,6 @@ private:
 	VkPipeline scatterComputePipeline;
 	VkPipeline totalextractionComputePipeline;
 	VkPipeline clearhistogramComputePipeline;
-	VkPipeline graphicsscatterComputePipeline;
 	VkPipeline gridComputePipeline;
 
 	VkSwapchainKHR swapChain;
@@ -325,7 +288,6 @@ private:
 	val::VulkanAllocator bufferAllocator;
 
 	std::vector<val::AllocatedBuffer> binBuffers; // Scatter requires a seperate read and write buffer to prevent race conditions
-	std::vector<val::AllocatedBuffer> graphicsBuffers; // Requires stored states per in flight frame
 	std::vector<val::AllocatedBuffer> vBuffers; // G2p2g requires a reperate read and write buffer to prevent race conditions
 	val::AllocatedBuffer mBuffer;
 	val::AllocatedBuffer histogramBuffer;
@@ -1288,13 +1250,13 @@ private:
 		VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
 		vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
 
-		auto bindingDescription = Particle::getBindingDescription();
-		auto attributeDescriptions = Particle::getAttributeDescriptions();
+		//auto bindingDescription = Particle::getBindingDescription();
+		//auto attributeDescriptions = Particle::getAttributeDescriptions();
 
-		vertexInputInfo.vertexBindingDescriptionCount = 1;
-		vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
-		vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
-		vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
+		vertexInputInfo.vertexBindingDescriptionCount = 0;
+		vertexInputInfo.pVertexBindingDescriptions = nullptr;
+		vertexInputInfo.vertexAttributeDescriptionCount = 0;
+		vertexInputInfo.pVertexAttributeDescriptions = nullptr;
 
 		VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
 		inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -1564,16 +1526,14 @@ private:
 
 		std::vector<dsl::DescriptorAllocator::PoolSizeRatio> frameSizes =
 		{
-			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2.0f / 3.0f },
-			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1.0f / 3.0f }
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2.0f / 2.0f }
 		};
 		
-		frameComputeDescriptorAllocator.initPool(device, 3 * MAX_FRAMES_IN_FLIGHT, frameSizes);
+		frameComputeDescriptorAllocator.initPool(device, 2 * MAX_FRAMES_IN_FLIGHT, frameSizes);
 
 		dsl::DescriptorLayoutBuilder frameBuilder{};
 		frameBuilder.addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER); // PUBO
-		frameBuilder.addBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // G
-		frameBuilder.addBinding(2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER); // TUBO
+		frameBuilder.addBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER); // TUBO
 
 		frameBuilder.build(device, VK_SHADER_STAGE_COMPUTE_BIT, frameComputeDescriptorSetLayout);
 
@@ -1585,7 +1545,7 @@ private:
 		for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
 			uint32_t binding = 0;
-			std::array<VkWriteDescriptorSet, 3> descriptorWrites{};
+			std::array<VkWriteDescriptorSet, 2> descriptorWrites{};
 
 			VkDescriptorBufferInfo parameterUniformBufferInfo{};
 			parameterUniformBufferInfo.buffer = parameterBuffers[i].buffer;
@@ -1601,26 +1561,12 @@ private:
 			descriptorWrites[binding].descriptorCount = 1;
 			descriptorWrites[binding].pBufferInfo = &parameterUniformBufferInfo;
 
-			VkDescriptorBufferInfo particleBufferInfo{};
-			particleBufferInfo.buffer = graphicsBuffers[i].buffer;
-			particleBufferInfo.offset = 0;
-			particleBufferInfo.range = sizeof(Particle) * PARTICLE_COUNT;
-
-			binding = 1;
-			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			descriptorWrites[binding].dstSet = frameDescriptorSets[i];
-			descriptorWrites[binding].dstBinding = binding;
-			descriptorWrites[binding].dstArrayElement = 0;
-			descriptorWrites[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-			descriptorWrites[binding].descriptorCount = 1;
-			descriptorWrites[binding].pBufferInfo = &particleBufferInfo;
-
 			VkDescriptorBufferInfo toolUniformBufferInfo{};
 			toolUniformBufferInfo.buffer = toolBuffers[i].buffer;
 			toolUniformBufferInfo.offset = 0;
 			toolUniformBufferInfo.range = sizeof(ToolUBO);
 
-			binding = 2;
+			binding = 1;
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			descriptorWrites[binding].dstSet = frameDescriptorSets[i];
 			descriptorWrites[binding].dstBinding = binding;
@@ -1643,7 +1589,6 @@ private:
 		auto scatterCode = readFile("../shaders/scatter.comp.spv");
 		auto totalextractionCode = readFile("../shaders/totalextraction.comp.spv");
 		auto clearhistogramCode = readFile("../shaders/clearhistogram.comp.spv");
-		auto graphicsscatterCode = readFile("../shaders/graphicsscatter.comp.spv");
 		auto gridCode = readFile("../shaders/grid.comp.spv");
 
 		std::vector<VkShaderModule> shaderModules =
@@ -1656,7 +1601,6 @@ private:
 			createShaderModule(scatterCode),
 			createShaderModule(totalextractionCode),
 			createShaderModule(clearhistogramCode),
-			createShaderModule(graphicsscatterCode),
 			createShaderModule(gridCode)
 		};
 
@@ -1716,8 +1660,7 @@ private:
 		scatterComputePipeline = pipelines[5];
 		totalextractionComputePipeline = pipelines[6];
 		clearhistogramComputePipeline = pipelines[7];
-		graphicsscatterComputePipeline = pipelines[8];
-		gridComputePipeline = pipelines[9];
+		gridComputePipeline = pipelines[8];
 
 		for (VkShaderModule& module : shaderModules)
 		{
@@ -1851,9 +1794,6 @@ private:
 
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
 
-		VkDeviceSize offsets[] = { 0 };
-		vkCmdBindVertexBuffers(commandBuffer, 0, 1, &graphicsBuffers[currentFrame].buffer, offsets);
-
 		vkCmdDrawIndirect(commandBuffer, indirectDispatchBuffer.buffer, 3 * sizeof(uint32_t), 1, 0);
 
 		ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
@@ -1876,6 +1816,16 @@ private:
 		if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS)
 		{
 			throw std::runtime_error("Failed to begin recording compute command buffer.");
+		}
+
+		if (pausedSimulation)
+		{
+			if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS)
+			{
+				throw std::runtime_error("Failed to record compute command buffer");
+			}
+
+			return;
 		}
 
 		VkMemoryBarrier computeToComputeBarrier{};
@@ -1917,127 +1867,117 @@ private:
 
 		// Register new particles
 
-		if (!pausedSimulation)
-		{
-			for (uint32_t i = 0; i < substeps; i++)
-			{
-				vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &substepDescriptorSets[currentCompute], 0, nullptr);
-				vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 2, 1, &binDescriptorSets[currentBin], 0, nullptr);
-
-				vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, g2p2gComputePipeline);
-				vkCmdDispatch(commandBuffer, particleBlockDimensions, particleBlockDimensions, 1);
-
-				vkCmdPipelineBarrier(commandBuffer,
-					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-					0,
-					1, &computeToComputeBarrier,
-					0, nullptr,
-					0, nullptr
-				);
-
-				vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, gridComputePipeline);
-				vkCmdDispatch(commandBuffer, ceilIntDivision(dimensions, GRID_KERNEL_SIZE), ceilIntDivision(dimensions, GRID_KERNEL_SIZE), 1);
-
-				vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, processhistogramComputePipeline);
-				vkCmdDispatch(commandBuffer, ceilIntDivision(paddedParticleBlockDimensions, BLOCK_KERNEL_SIZE), ceilIntDivision(paddedParticleBlockDimensions, BLOCK_KERNEL_SIZE), 1);
-
-				vkCmdPipelineBarrier(commandBuffer,
-					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-					0,
-					1, &computeToComputeBarrier,
-					0, nullptr,
-					0, nullptr
-				);
-
-				// Look into https://research.nvidia.com/publication/2016-03_single-pass-parallel-prefix-scan-decoupled-look-back
-				vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, localsumComputePipeline);
-				vkCmdDispatch(commandBuffer, ceilIntDivision(paddedParticleBlockCount, SUM_KERNEL_SIZE), 1, 1);
-
-				vkCmdPipelineBarrier(commandBuffer,
-					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-					0,
-					1, &computeToComputeBarrier,
-					0, nullptr,
-					0, nullptr
-				);
-
-				vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, partialglobalsumComputePipeline);
-				vkCmdDispatch(commandBuffer, 1, 1, 1);
-
-				vkCmdPipelineBarrier(commandBuffer,
-					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-					0,
-					1, &computeToComputeBarrier,
-					0, nullptr,
-					0, nullptr
-				);
-
-				vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, globalsumComputePipeline);
-				vkCmdDispatch(commandBuffer, ceilIntDivision(paddedParticleBlockCount, SUM_KERNEL_SIZE), 1, 1);
-
-				vkCmdPipelineBarrier(commandBuffer,
-					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
-					0,
-					1, &computeToIndirectBarrier,
-					0, nullptr,
-					0, nullptr
-				);
-				//
-
-				vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, scatterComputePipeline);
-				vkCmdDispatchIndirect(commandBuffer, indirectDispatchBuffer.buffer, 0);
-
-				vkCmdPipelineBarrier(commandBuffer,
-					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-					0,
-					1, &computeToComputeBarrier,
-					0, nullptr,
-					0, nullptr
-				);
-
-				vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, totalextractionComputePipeline);
-				vkCmdDispatch(commandBuffer, 1, 1, 1);
-
-				vkCmdPipelineBarrier(commandBuffer,
-					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-					0,
-					1, &computeToComputeBarrier,
-					0, nullptr,
-					0, nullptr
-				);
-
-				vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, clearhistogramComputePipeline);
-				vkCmdDispatch(commandBuffer, ceilIntDivision(paddedParticleBlockCount, (BLOCK_KERNEL_SIZE * BLOCK_KERNEL_SIZE)), 1, 1);
-
-				vkCmdPipelineBarrier(commandBuffer,
-					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
-					0,
-					1, &computeToIndirectBarrier,
-					0, nullptr,
-					0, nullptr
-				);
-
-				currentBin = (currentBin + 1) % MAX_FRAMES_IN_FLIGHT;
-				currentCompute = (currentCompute + 1) % 2;
-				stepCount++;
-			}
-		}
-		else
+		for (uint32_t i = 0; i < substeps; i++)
 		{
 			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &substepDescriptorSets[currentCompute], 0, nullptr);
 			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 2, 1, &binDescriptorSets[currentBin], 0, nullptr);
-		}
 
-		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, graphicsscatterComputePipeline);
-		vkCmdDispatchIndirect(commandBuffer, indirectDispatchBuffer.buffer, 0);
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, g2p2gComputePipeline);
+			vkCmdDispatch(commandBuffer, particleBlockDimensions, particleBlockDimensions, 1);
+
+			vkCmdPipelineBarrier(commandBuffer,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				0,
+				1, &computeToComputeBarrier,
+				0, nullptr,
+				0, nullptr
+			);
+
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, gridComputePipeline);
+			vkCmdDispatch(commandBuffer, ceilIntDivision(dimensions, GRID_KERNEL_SIZE), ceilIntDivision(dimensions, GRID_KERNEL_SIZE), 1);
+
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, processhistogramComputePipeline);
+			vkCmdDispatch(commandBuffer, ceilIntDivision(paddedParticleBlockDimensions, BLOCK_KERNEL_SIZE), ceilIntDivision(paddedParticleBlockDimensions, BLOCK_KERNEL_SIZE), 1);
+
+			vkCmdPipelineBarrier(commandBuffer,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				0,
+				1, &computeToComputeBarrier,
+				0, nullptr,
+				0, nullptr
+			);
+
+			// Look into https://research.nvidia.com/publication/2016-03_single-pass-parallel-prefix-scan-decoupled-look-back
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, localsumComputePipeline);
+			vkCmdDispatch(commandBuffer, ceilIntDivision(paddedParticleBlockCount, SUM_KERNEL_SIZE), 1, 1);
+
+			vkCmdPipelineBarrier(commandBuffer,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				0,
+				1, &computeToComputeBarrier,
+				0, nullptr,
+				0, nullptr
+			);
+
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, partialglobalsumComputePipeline);
+			vkCmdDispatch(commandBuffer, 1, 1, 1);
+
+			vkCmdPipelineBarrier(commandBuffer,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				0,
+				1, &computeToComputeBarrier,
+				0, nullptr,
+				0, nullptr
+			);
+
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, globalsumComputePipeline);
+			vkCmdDispatch(commandBuffer, ceilIntDivision(paddedParticleBlockCount, SUM_KERNEL_SIZE), 1, 1);
+
+			vkCmdPipelineBarrier(commandBuffer,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+				0,
+				1, &computeToIndirectBarrier,
+				0, nullptr,
+				0, nullptr
+			);
+			//
+
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, scatterComputePipeline);
+			vkCmdDispatchIndirect(commandBuffer, indirectDispatchBuffer.buffer, 0);
+
+			vkCmdPipelineBarrier(commandBuffer,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				0,
+				1, &computeToComputeBarrier,
+				0, nullptr,
+				0, nullptr
+			);
+
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, totalextractionComputePipeline);
+			vkCmdDispatch(commandBuffer, 1, 1, 1);
+
+			vkCmdPipelineBarrier(commandBuffer,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				0,
+				1, &computeToComputeBarrier,
+				0, nullptr,
+				0, nullptr
+			);
+
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, clearhistogramComputePipeline);
+			vkCmdDispatch(commandBuffer, ceilIntDivision(paddedParticleBlockCount, (BLOCK_KERNEL_SIZE * BLOCK_KERNEL_SIZE)), 1, 1);
+
+			vkCmdPipelineBarrier(commandBuffer,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+				0,
+				1, &computeToIndirectBarrier,
+				0, nullptr,
+				0, nullptr
+			);
+
+			currentBin = (currentBin + 1) % MAX_FRAMES_IN_FLIGHT;
+			currentCompute = (currentCompute + 1) % 2;
+			stepCount++;
+		}
+		
 
 		if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS)
 		{
@@ -2132,7 +2072,6 @@ private:
 	void createShaderStorageBuffers()
 	{
 		binBuffers.resize(MAX_FRAMES_IN_FLIGHT);
-		graphicsBuffers.resize(MAX_FRAMES_IN_FLIGHT);
 		vBuffers.resize(2);
 
 		float pi = 3.14159265358979323846f;
@@ -2148,7 +2087,7 @@ private:
 		uint32_t cells = nodeCount;
 
 		std::vector<uint32_t> histogram(paddedParticleBlockCount);
-		std::vector<Particle> particles(PARTICLE_COUNT);
+		std::vector<glm::vec2> particles(PARTICLE_COUNT);
 		std::vector<uint32_t> blockIndices(PARTICLE_COUNT);
 		std::vector<uint32_t> blockPIndex(PARTICLE_COUNT);
 		for (size_t i = 0; i < PARTICLE_COUNT; i++)
@@ -2172,8 +2111,7 @@ private:
 			auto test1 = blockPIndex[i];
 			auto test2 = histogram[blockIndex];
 			blockPIndex[i] = histogram[blockIndex]++;
-			particles[i].position = cellPos;
-			particles[i].color = glm::vec4(rndDist(rndEngine), rndDist(rndEngine), rndDist(rndEngine), 1.0f);
+			particles[i] = cellPos;
 		}
 
 		std::vector<uint32_t> binCounts(paddedParticleBlockCount);
@@ -2192,7 +2130,7 @@ private:
 		std::vector<Bin> bins(binCount);
 		for (size_t i = 0; i < PARTICLE_COUNT; i++)
 		{
-			glm::vec2 pos = particles[i].position;
+			glm::vec2 pos = particles[i];
 			uint32_t blockIndex = blockIndices[i];
 			uint32_t baseBin = binOffsets[blockIndex];
 			uint32_t binIndex = baseBin + (blockPIndex[i] / BIN_SIZE);
@@ -2333,26 +2271,6 @@ private:
 			});
 
 		copyBuffer(stagingBuffer.buffer, binSumBuffer.buffer, bufferSize);
-
-		stagingBuffer.dispose();
-		//
-		
-		// Particles
-		bufferSize = sizeof(Particle) * PARTICLE_COUNT;
-
-		stagingBuffer = createStagingBuffer(bufferSize);
-		memcpy(stagingBuffer.mapped, particles.data(), (size_t)bufferSize);
-		
-		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
-		{
-			graphicsBuffers[i] = bufferAllocator.create({
-				bufferSize,
-				val::BufferUsage::VertexStorage,
-				val::BufferLifetime::Static
-				});
-
-			copyBuffer(stagingBuffer.buffer, graphicsBuffers[i].buffer, bufferSize);
-		}
 
 		stagingBuffer.dispose();
 		//
@@ -2804,7 +2722,6 @@ private:
 		vkDestroyPipeline(device, totalextractionComputePipeline, nullptr);
 		vkDestroyPipeline(device, scatterComputePipeline, nullptr);
 		vkDestroyPipeline(device, clearhistogramComputePipeline, nullptr);
-		vkDestroyPipeline(device, graphicsscatterComputePipeline, nullptr);
 		vkDestroyPipeline(device, gridComputePipeline, nullptr);
 		vkDestroyPipelineLayout(device, computePipelineLayout, nullptr);
 
@@ -2833,10 +2750,9 @@ private:
 		vkDestroyDescriptorSetLayout(device, frameComputeDescriptorSetLayout, nullptr);
 		vkDestroyDescriptorSetLayout(device, binDescriptorSetLayout, nullptr);
 
-		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+		for (size_t i = 0; i < 2; i++)
 		{
 			vBuffers[i].dispose();
-			binBuffers[i].dispose();
 		}
 
 		mBuffer.dispose();
@@ -2850,7 +2766,7 @@ private:
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
-			graphicsBuffers[i].dispose();
+			binBuffers[i].dispose();
 		}
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
