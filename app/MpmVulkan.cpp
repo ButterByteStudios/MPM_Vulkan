@@ -83,6 +83,7 @@ struct alignas(8) ParameterUBO
 	uint32_t blocks;
 	float dt;
 	float invDt;
+	uint32_t stepCount;
 };
 
 struct alignas(8) CameraUBO
@@ -92,16 +93,22 @@ struct alignas(8) CameraUBO
 	float zoom;
 };
 
-struct alignas(8) InteractUBO
+struct alignas(8) ToolUBO
 {
-	glm::vec2 mousePos;
+	glm::vec2 pos;
+	float toolSize;
+	uint32_t toolShape;
 	uint32_t particleCount;
+	uint32_t stepCount;
+	float mass;
+	uint32_t materialId;
 };
 
 struct ScatterDispatchData
 {
 	uint32_t dispatchX;
 	uint32_t dispatchY;
+	uint32_t dispatchZ;
 	uint32_t dispatchZ;
 };
 
@@ -245,7 +252,7 @@ private:
 	VkSurfaceKHR surface;
 
 	dsl::DescriptorAllocator substepComputeDescriptorAllocator;
-	dsl::DescriptorAllocator transferComputeDescriptorAllocator;
+	dsl::DescriptorAllocator frameComputeDescriptorAllocator;
 	dsl::DescriptorAllocator graphicsDescriptorAllocator;
 	dsl::DescriptorAllocator imguiDescriptorAllocator;
 	ldl::DeviceBuilder deviceBuilder;
@@ -259,9 +266,9 @@ private:
 	VkPipeline graphicsPipeline;
 	
 	std::vector<VkDescriptorSet> substepDescriptorSets;
-	std::vector<VkDescriptorSet> transferDescriptorSets;
+	std::vector<VkDescriptorSet> frameDescriptorSets;
 	VkDescriptorSetLayout substepComputeDescriptorSetLayout;
-	VkDescriptorSetLayout transferComputeDescriptorSetLayout;
+	VkDescriptorSetLayout frameComputeDescriptorSetLayout;
 	VkPipelineLayout computePipelineLayout;
 
 	VkPipeline g2p2gComputePipeline;
@@ -327,7 +334,7 @@ private:
 
 	std::vector<val::AllocatedBuffer> parameterBuffers;
 	std::vector<val::AllocatedBuffer> cameraBuffers;
-	val::AllocatedBuffer interactionBuffer; // Stores spawn/delete information
+	std::vector<val::AllocatedBuffer> toolBuffers;
 
 	uint32_t dimensions = 128;
 	uint32_t nodeCount = dimensions * dimensions;
@@ -340,9 +347,10 @@ private:
 
 	double lastTime = 0;
 	double lastFrameTime = 0;
+	uint64_t stepCount = 0;
 
 	glm::vec2 lastMousePos = glm::vec2(0);
-	float sensitivity = 0.002f;
+	float sensitivity = 2.0f;
 	float scrollSensitivity = 0.05f;
 
 	int defaultMaterial = 2;
@@ -387,6 +395,7 @@ private:
 			double currentTime = glfwGetTime();
 			lastFrameTime = currentTime - lastTime;
 			lastTime = currentTime;
+			stepCount++;
 		}
 
 		vkDeviceWaitIdle(device);
@@ -697,11 +706,19 @@ private:
 	{
 		int y = keyInput.isKeyDown(GLFW_KEY_W) - keyInput.isKeyDown(GLFW_KEY_S);
 		int x = keyInput.isKeyDown(GLFW_KEY_D) - keyInput.isKeyDown(GLFW_KEY_A);
-		
+
 		glm::vec2 mousePos = glm::vec2((float)mouseInput.posX, (float)mouseInput.posY);
 		glm::vec2 deltaMouse = mouseInput.getIsButtonDown(GLFW_MOUSE_BUTTON_RIGHT) ? lastMousePos - mousePos : glm::vec2(0);
 		lastMousePos = mousePos;
+
+		int width, height;
+		glfwGetFramebufferSize(window, &width, &height);
+
+		// height determines what 1 unit of screenspace is. The simulation renders as 1x1 centered on 0,0
+		deltaMouse = screenspaceToWorldspace(deltaMouse);
+
 		zoom += (mouseInput.scrollDY * scrollSensitivity) * zoom;
+
 		cameraPos += deltaMouse * sensitivity / zoom;
 		accel = glm::vec2(x, y) * 20.0f / dx;
 
@@ -810,6 +827,7 @@ private:
 		pUBO.dt = dt;
 		pUBO.invDt = 1.0f / pUBO.dt;
 		pUBO.speed = accel;
+		pUBO.stepCount = static_cast<uint32_t>(stepCount);
 
 		memcpy(parameterBuffers[currentImage].mapped, &pUBO, sizeof(pUBO));
 
@@ -822,6 +840,12 @@ private:
 		cUBO.zoom = zoom;
 
 		memcpy(cameraBuffers[currentImage].mapped, &cUBO, sizeof(cUBO));
+
+		ToolUBO tUBO{};
+		tUBO.pos = glm::vec2(mouseInput.posX, mouseInput.posY);
+		tUBO.stepCount = stepCount;
+
+		memcpy(toolBuffers[currentImage].mapped, &tUBO, sizeof(tUBO));
 	}
 
 	std::vector<const char*> getRequiredExtensions()
@@ -1507,43 +1531,44 @@ private:
 			vkUpdateDescriptorSets(device, descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
 		}
 
-		std::vector<dsl::DescriptorAllocator::PoolSizeRatio> transferSizes =
+		std::vector<dsl::DescriptorAllocator::PoolSizeRatio> frameSizes =
 		{
-			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1.0f / 2.0f },
-			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1.0f / 2.0f }
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2.0f / 3.0f },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1.0f / 3.0f }
 		};
 		
-		transferComputeDescriptorAllocator.initPool(device, 2 * MAX_FRAMES_IN_FLIGHT, transferSizes);
+		frameComputeDescriptorAllocator.initPool(device, 3 * MAX_FRAMES_IN_FLIGHT, frameSizes);
 
-		dsl::DescriptorLayoutBuilder transferBuilder{};
-		transferBuilder.addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER); // UBO
-		transferBuilder.addBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // G
+		dsl::DescriptorLayoutBuilder frameBuilder{};
+		frameBuilder.addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER); // PUBO
+		frameBuilder.addBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // G
+		frameBuilder.addBinding(2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER); // TUBO
 
-		transferBuilder.build(device, VK_SHADER_STAGE_COMPUTE_BIT, transferComputeDescriptorSetLayout);
+		frameBuilder.build(device, VK_SHADER_STAGE_COMPUTE_BIT, frameComputeDescriptorSetLayout);
 
-		std::vector<VkDescriptorSetLayout> transferLayouts(MAX_FRAMES_IN_FLIGHT, transferComputeDescriptorSetLayout);
+		std::vector<VkDescriptorSetLayout> frameLayouts(MAX_FRAMES_IN_FLIGHT, frameComputeDescriptorSetLayout);
 
-		transferDescriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
-		transferComputeDescriptorAllocator.allocate(device, transferLayouts.data(), (uint32_t)MAX_FRAMES_IN_FLIGHT, transferDescriptorSets.data());
+		frameDescriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+		frameComputeDescriptorAllocator.allocate(device, frameLayouts.data(), (uint32_t)MAX_FRAMES_IN_FLIGHT, frameDescriptorSets.data());
 
 		for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
 			uint32_t binding = 0;
-			std::array<VkWriteDescriptorSet, 2> descriptorWrites{};
+			std::array<VkWriteDescriptorSet, 3> descriptorWrites{};
 
-			VkDescriptorBufferInfo uniformBufferInfo{};
-			uniformBufferInfo.buffer = parameterBuffers[i].buffer;
-			uniformBufferInfo.offset = 0;
-			uniformBufferInfo.range = sizeof(ParameterUBO);
+			VkDescriptorBufferInfo parameterUniformBufferInfo{};
+			parameterUniformBufferInfo.buffer = parameterBuffers[i].buffer;
+			parameterUniformBufferInfo.offset = 0;
+			parameterUniformBufferInfo.range = sizeof(ParameterUBO);
 
 			binding = 0;
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			descriptorWrites[binding].dstSet = transferDescriptorSets[i];
+			descriptorWrites[binding].dstSet = frameDescriptorSets[i];
 			descriptorWrites[binding].dstBinding = binding;
 			descriptorWrites[binding].dstArrayElement = 0;
 			descriptorWrites[binding].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 			descriptorWrites[binding].descriptorCount = 1;
-			descriptorWrites[binding].pBufferInfo = &uniformBufferInfo;
+			descriptorWrites[binding].pBufferInfo = &parameterUniformBufferInfo;
 
 			VkDescriptorBufferInfo particleBufferInfo{};
 			particleBufferInfo.buffer = graphicsBuffers[i].buffer;
@@ -1552,12 +1577,26 @@ private:
 
 			binding = 1;
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			descriptorWrites[binding].dstSet = transferDescriptorSets[i];
+			descriptorWrites[binding].dstSet = frameDescriptorSets[i];
 			descriptorWrites[binding].dstBinding = binding;
 			descriptorWrites[binding].dstArrayElement = 0;
 			descriptorWrites[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 			descriptorWrites[binding].descriptorCount = 1;
 			descriptorWrites[binding].pBufferInfo = &particleBufferInfo;
+
+			VkDescriptorBufferInfo toolUniformBufferInfo{};
+			toolUniformBufferInfo.buffer = toolBuffers[i].buffer;
+			toolUniformBufferInfo.offset = 0;
+			toolUniformBufferInfo.range = sizeof(ToolUBO);
+
+			binding = 2;
+			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[binding].dstSet = frameDescriptorSets[i];
+			descriptorWrites[binding].dstBinding = binding;
+			descriptorWrites[binding].dstArrayElement = 0;
+			descriptorWrites[binding].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+			descriptorWrites[binding].descriptorCount = 1;
+			descriptorWrites[binding].pBufferInfo = &toolUniformBufferInfo;
 
 			vkUpdateDescriptorSets(device, descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
 		}
@@ -1604,7 +1643,7 @@ private:
 
 		std::vector<VkDescriptorSetLayout> setLayouts{
 			substepComputeDescriptorSetLayout,
-			transferComputeDescriptorSetLayout
+			frameComputeDescriptorSetLayout
 		};
 
 		VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
@@ -1841,7 +1880,9 @@ private:
 			);
 		}
 
-		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 1, 1, &transferDescriptorSets[currentFrame], 0, nullptr);
+		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 1, 1, &frameDescriptorSets[currentFrame], 0, nullptr);
+
+		// Register new particles
 
 		if (!pausedSimulation)
 		{
@@ -1951,6 +1992,7 @@ private:
 				);
 
 				currentCompute = (currentCompute + 1) % 2;
+				stepCount++;
 			}
 		}
 		else
@@ -2341,22 +2383,28 @@ private:
 
 	void createUniformBuffers()
 	{
-		VkDeviceSize bufferSize = sizeof(ParameterUBO);
-
 		parameterBuffers.resize(MAX_FRAMES_IN_FLIGHT);
 
 		cameraBuffers.resize(MAX_FRAMES_IN_FLIGHT);
 
+		toolBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
 			parameterBuffers[i] = bufferAllocator.create({
-				bufferSize,
+				sizeof(ParameterUBO),
 				val::BufferUsage::Uniform,
 				val::BufferLifetime::Dynamic
 				});
 
 			cameraBuffers[i] = bufferAllocator.create({
-				bufferSize,
+				sizeof(CameraUBO),
+				val::BufferUsage::Uniform,
+				val::BufferLifetime::Dynamic
+				});
+
+			toolBuffers[i] = bufferAllocator.create({
+				sizeof(ToolUBO),
 				val::BufferUsage::Uniform,
 				val::BufferLifetime::Dynamic
 				});
@@ -2726,6 +2774,7 @@ private:
 		{
 			parameterBuffers[i].dispose();
 			cameraBuffers[i].dispose();
+			toolBuffers[i].dispose();
 		}
 
 		ImGui_ImplVulkan_Shutdown();
@@ -2735,12 +2784,12 @@ private:
 
 		graphicsDescriptorAllocator.destroyPool(device);
 		substepComputeDescriptorAllocator.destroyPool(device);
-		transferComputeDescriptorAllocator.destroyPool(device);
+		frameComputeDescriptorAllocator.destroyPool(device);
 		imguiDescriptorAllocator.destroyPool(device);
 
 		vkDestroyDescriptorSetLayout(device, graphicsDescriptorSetLayout, nullptr);
 		vkDestroyDescriptorSetLayout(device, substepComputeDescriptorSetLayout, nullptr);
-		vkDestroyDescriptorSetLayout(device, transferComputeDescriptorSetLayout, nullptr);
+		vkDestroyDescriptorSetLayout(device, frameComputeDescriptorSetLayout, nullptr);
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
@@ -2815,6 +2864,15 @@ private:
 	{
 		auto app = reinterpret_cast<MpmVulkan*>(glfwGetWindowUserPointer(window));
 		app->framebufferResized = true;
+	}
+
+	glm::vec2 screenspaceToWorldspace(glm::vec2 pos)
+	{
+		int width, height;
+		glfwGetFramebufferSize(window, &width, &height);
+
+		// height determines what 1 unit of screenspace is. The simulation renders as 1x1 centered on 0,0
+		return pos / static_cast<float>(height);
 	}
 };
 

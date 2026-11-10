@@ -63,9 +63,6 @@ float qw2(float x)
 	return 0.5 * xp * xp;
 }
 
-#define G (4)
-#define LOG2_G (2)
-#define G_MASK (G - 1)
 #define G2 (G * G)
 #define GBlockDimensions (G + 2 + 2)
 #define GBlock (GBlockDimensions * GBlockDimensions)
@@ -117,10 +114,10 @@ shared float shMGrid[GBlock];
 
 void main()
 {
-	float dx = ubo.dx;
-	float invDx = ubo.invDx;
-	float dt = ubo.dt;
-	uint dimensions = ubo.dimensions;
+	float dx = pubo.dx;
+	float invDx = pubo.invDx;
+	float dt = pubo.dt;
+	uint dimensions = pubo.dimensions;
 
 	uint pIndex = gl_LocalInvocationID.x;
 	ivec2 gridBlockCoords = ivec2(gl_WorkGroupID.xy);
@@ -254,7 +251,8 @@ void main()
 
 			mat2 kirchoff;
 			
-			switch (mats[materialId].materialType) {
+			switch (mats[materialId].materialType) 
+			{
 				case NEO_HOOKEAN:
 					kirchoff = neohookeanKirchoff(F, mats[materialId].params[I_LAMBDA], mats[materialId].params[I_MU]);
 					break;
@@ -351,8 +349,8 @@ void main()
 			atomicAdd(shMGrid[i22], mass * w22);
 
 			uvec2 blockCoords = uvec2(cellPosition - 1.5) >> LOG2_G;
-			uint bIndex = atomicAdd(histogram[blockIndex(blockCoords.x, blockCoords.y)], 1);
-			bins[binIndex].blockParticleIndex[pIndex] = bIndex;
+			uint particleInBlock = atomicAdd(histogram[blockIndex(blockCoords.x, blockCoords.y)], 1);
+			bins[binIndex].particleInBlock[pIndex] = particleInBlock;
 		}
 	}
 

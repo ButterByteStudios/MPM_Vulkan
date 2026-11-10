@@ -12,7 +12,7 @@ layout(set = 0, local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 void main()
 {
-	if (gl_GlobalInvocationID.x >= ubo.blocks)
+	if (gl_GlobalInvocationID.x >= pubo.blocks)
 	{
 		return;
 	}

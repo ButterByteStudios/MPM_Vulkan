@@ -79,6 +79,6 @@ namespace iml
 	void MouseInput::moveCallback(GLFWwindow* window, double xpos, double ypos)
 	{
 		MouseInput::posX = xpos;
-		MouseInput::posY = ypos;
+		MouseInput::posY = -ypos;
 	}
 }

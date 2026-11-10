@@ -25,7 +25,7 @@ void main()
     uint x = gl_GlobalInvocationID.x;
     uint y = gl_GlobalInvocationID.y;
 
-	if (x >= ubo.dimensions || y >= ubo.dimensions)
+	if (x >= pubo.dimensions || y >= pubo.dimensions)
 	{
 		return;
 	}
@@ -41,11 +41,11 @@ void main()
 
 	// 3 outer node halos are boundaries so particles stay in particle block territory
 	bool left = x <= 4;
-	bool right = x >= ubo.dimensions - 4;
+	bool right = x >= pubo.dimensions - 4;
 	bool down = y <= 4;
-	bool up = y >= ubo.dimensions - 4;
+	bool up = y >= pubo.dimensions - 4;
 
-	vec2 acceleration = vec2(0, -9.81 * ubo.dt * ubo.invDx) + ubo.speed * ubo.dt;
+	vec2 acceleration = vec2(0, -9.81 * pubo.dt * pubo.invDx) + pubo.speed * pubo.dt;
 
 	if (m == 0)
 	{
@@ -78,7 +78,7 @@ void main()
 	}
 
 	// Put in pushconstants maybe
-	float cflSpeed = 0.5 * ubo.invDt;
+	float cflSpeed = 0.5 * pubo.invDt;
 
 	// Convert momentum to velocity
 	vGrid[i] = clamp((v / m) + acceleration, -cflSpeed, cflSpeed);

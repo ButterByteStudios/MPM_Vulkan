@@ -1,0 +1,65 @@
+#version 450
+
+#extension GL_ARB_shading_language_include: enable
+#include "global.glsl"
+
+layout(set = 0, std430, binding = BIND_H) writeonly buffer BlockHistogramSSBOOut
+{
+	uint histogram[];
+};
+
+layout(set = 0, std430, binding = BIND_BR) writeonly buffer BinSSBOOut
+{
+	Bin bins[];
+};
+
+layout(set = 0, std430, binding = BIND_SID) readonly buffer ScatterIndirectIn
+{
+	uint scatterX;
+	uint scatterY;
+	uint scatterZ;
+};
+
+layout(local_size_x = BIN_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+    uint id = gl_GlobalInvocationID.x;
+
+    vec3 random = hash32(uvec2(id, tubo.stepCount));
+
+    vec2 cellPosition;
+
+    switch (tubo.toolShape)
+    {
+        case CIRCLE:
+            cellPosition = circleDistribution(random, tubo.toolSize);
+            break;
+        case SQUARE:
+            break;
+    }
+
+    ivec2 blockCoords = ivec2(cellPosition - 1.5) >> LOG2_G; // Divide by 4
+    uint block = blockIndex(blockCoords.x, blockCoords.y);
+
+    uint particleInBlock = atomicAdd(histogram[blockIndex(blockCoords.x, blockCoords.y)], 1);
+
+    // scatter to binsin at the end of all bins and let the regular scatter kernel handle it
+    // scatterX contains the amount of used bins. After registerNewParticles, we need to increase it by ceil(particlesAdded / BinSize) so the added particles get scattered
+    uint firstScatterBin = scatterX + 1;
+    uint bIndex = firstScatterBin + gl_WorkGroupID.x;
+    uint pIndex = gl_LocalInvocationID.x;
+
+    bins[bIndex].F[pIndex] = mat2(1.0);
+    bins[bIndex].position[pIndex] = cellPosition;
+    bins[bIndex].mass[pIndex] = tubo.mass;
+    bins[bIndex].hardening[pIndex] = 0; // make tool parameter probs
+    bins[bIndex].particleInBlock[pIndex] = particleInBlock;
+    bins[bIndex].particleId[pIndex] = 0; // Revise graphics scatter
+    bins[bIndex].materialId[pIndex] = tubo.materialId;
+
+    if (pIndex == 0)
+    {
+        bins[bIndex].particleCount = min(tubo.particleCount - bIndex * BIN_SIZE, BIN_SIZE);
+    }
+}

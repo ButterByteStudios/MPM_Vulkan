@@ -9,7 +9,7 @@ layout(binding = 0) uniform ParameterUBO
 	uint blockDimensions;
 	float dt;
 	float invDt;
-} ubo;
+} pubo;
 
 layout(binding = 1) uniform CameraUBO
 {
@@ -27,10 +27,9 @@ void main()
 {
 	gl_PointSize = 2.0;
 	
-	// Map the position from 0 - dimensions to 0 - (dimensions - 2);
-	vec2 pos = (inPosition - 1) / (ubo.dimensions - 2) * 2.0 - 1.0;
-	vec2 camPos = vec2(cam.pos.x, -cam.pos.y);
-	vec2 offset = pos - camPos;
+	// Map position from 0-dimensions to 0-1
+	vec2 pos = inPosition / pubo.dimensions * 2.0 - 1.0;
+	vec2 offset = pos - cam.pos;
 	vec2 scaled = offset * cam.zoom;
 	gl_Position = vec4(scaled.x * cam.invAspectRatio, -scaled.y, 0.0, 1.0);
 	fragColor = inColor.rgb;
