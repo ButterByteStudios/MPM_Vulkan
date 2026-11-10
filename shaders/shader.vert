@@ -52,7 +52,7 @@ void main()
 	int particle = gl_VertexIndex;
 	int bin = particle >> LOG2_BIN_SIZE;
 	uint particleInBin = particle & BIN_MASK;
-	uint particleCount = binsIn[particleInBin].particleCount;
+	uint particleCount = binsIn[bin].particleCount;
 
 	if (particleInBin >= particleCount)
 	{
