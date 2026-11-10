@@ -104,12 +104,16 @@ struct alignas(8) ToolUBO
 	uint32_t materialId;
 };
 
-struct ScatterDispatchData
+struct IndirectDispatchData
 {
 	uint32_t dispatchX;
 	uint32_t dispatchY;
 	uint32_t dispatchZ;
-	uint32_t dispatchZ;
+
+	uint32_t vertexCount;
+	uint32_t instanceCount;
+	uint32_t firstVertex;
+	uint32_t firstInstance;
 };
 
 // WATCH FOR ALIGNMENT ISSUES. 
@@ -330,7 +334,7 @@ private:
 	// After the scatter, run another compute shader to add the spawned particles
 	val::AllocatedBuffer spawnBuffer; 
 
-	val::AllocatedBuffer scatterIndirectDispatchBuffer;
+	val::AllocatedBuffer indirectDispatchBuffer;
 
 	std::vector<val::AllocatedBuffer> parameterBuffers;
 	std::vector<val::AllocatedBuffer> cameraBuffers;
@@ -1141,10 +1145,10 @@ private:
 	{
 		std::vector<dsl::DescriptorAllocator::PoolSizeRatio> sizes =
 		{
-			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1.0f}
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2.0f / 2.0f }
 		};
 
-		graphicsDescriptorAllocator.initPool(device, MAX_FRAMES_IN_FLIGHT * 2, sizes);
+		graphicsDescriptorAllocator.initPool(device, MAX_FRAMES_IN_FLIGHT * 3, sizes);
 
 		dsl::DescriptorLayoutBuilder builder{};
 		builder.addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
@@ -1300,10 +1304,12 @@ private:
 		colorBlending.blendConstants[2] = 0.0f;
 		colorBlending.blendConstants[3] = 0.0f;
 
+		std::vector<VkDescriptorSetLayout> descriptorSetLayouts{ graphicsDescriptorSetLayout, substepComputeDescriptorSetLayout };
+
 		VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
 		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-		pipelineLayoutInfo.setLayoutCount = 1;
-		pipelineLayoutInfo.pSetLayouts = &graphicsDescriptorSetLayout;
+		pipelineLayoutInfo.setLayoutCount = 2;
+		pipelineLayoutInfo.pSetLayouts = descriptorSetLayouts.data();
 
 		if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &graphicsPipelineLayout) != VK_SUCCESS)
 		{
@@ -1500,10 +1506,10 @@ private:
 			descriptorWrites[binding].descriptorCount = 1;
 			descriptorWrites[binding].pBufferInfo = &BinBufferWriteInfo;
 
-			VkDescriptorBufferInfo scatterIndirectDispatchBufferInfo{};
-			scatterIndirectDispatchBufferInfo.buffer = scatterIndirectDispatchBuffer.buffer;
-			scatterIndirectDispatchBufferInfo.offset = 0;
-			scatterIndirectDispatchBufferInfo.range = sizeof(ScatterDispatchData);
+			VkDescriptorBufferInfo indirectDispatchBufferInfo{};
+			indirectDispatchBufferInfo.buffer = indirectDispatchBuffer.buffer;
+			indirectDispatchBufferInfo.offset = 0;
+			indirectDispatchBufferInfo.range = sizeof(IndirectDispatchData);
 
 			binding = 9;
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1512,7 +1518,7 @@ private:
 			descriptorWrites[binding].dstArrayElement = 0;
 			descriptorWrites[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 			descriptorWrites[binding].descriptorCount = 1;
-			descriptorWrites[binding].pBufferInfo = &scatterIndirectDispatchBufferInfo;
+			descriptorWrites[binding].pBufferInfo = &indirectDispatchBufferInfo;
 
 			VkDescriptorBufferInfo materialsBufferInfo{};
 			materialsBufferInfo.buffer = materialsBuffer.buffer;
@@ -1821,7 +1827,7 @@ private:
 		VkDeviceSize offsets[] = { 0 };
 		vkCmdBindVertexBuffers(commandBuffer, 0, 1, &graphicsBuffers[currentFrame].buffer, offsets);
 
-		vkCmdDraw(commandBuffer, PARTICLE_COUNT, 1, 0, 0);
+		vkCmdDrawIndirect(commandBuffer, indirectDispatchBuffer.buffer, 3 * sizeof(uint32_t), 1, 0);
 
 		ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
 
@@ -1956,7 +1962,7 @@ private:
 				//
 
 				vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, scatterComputePipeline);
-				vkCmdDispatchIndirect(commandBuffer, scatterIndirectDispatchBuffer.buffer, 0);
+				vkCmdDispatchIndirect(commandBuffer, indirectDispatchBuffer.buffer, 0);
 
 				vkCmdPipelineBarrier(commandBuffer,
 					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -2001,7 +2007,7 @@ private:
 		}
 
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, graphicsscatterComputePipeline);
-		vkCmdDispatchIndirect(commandBuffer, scatterIndirectDispatchBuffer.buffer, 0);
+		vkCmdDispatchIndirect(commandBuffer, indirectDispatchBuffer.buffer, 0);
 
 		if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS)
 		{
@@ -2097,7 +2103,7 @@ private:
 	{
 		binBuffers.resize(MAX_FRAMES_IN_FLIGHT);
 		graphicsBuffers.resize(MAX_FRAMES_IN_FLIGHT);
-		vBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+		vBuffers.resize(2);
 
 		float pi = 3.14159265358979323846f;
 		float worldR = size * (dimensions / 2) * dx;
@@ -2321,23 +2327,27 @@ private:
 		stagingBuffer.dispose();
 		//
 
-		// Scatter indirect dispatch
-		bufferSize = sizeof(ScatterDispatchData);
-		ScatterDispatchData scatterDispatchData{};
-		scatterDispatchData.dispatchX = ceilIntDivision(totalUsedBins, BIN_KERNEL_SIZE);
-		scatterDispatchData.dispatchY = 1;
-		scatterDispatchData.dispatchZ = 1;
+		// Indirect dispatches
+		bufferSize = sizeof(IndirectDispatchData);
+		IndirectDispatchData indirectDispatchData{};
+		indirectDispatchData.dispatchX = ceilIntDivision(totalUsedBins, BIN_KERNEL_SIZE);
+		indirectDispatchData.dispatchY = 1;
+		indirectDispatchData.dispatchZ = 1;
+		indirectDispatchData.vertexCount = totalUsedBins * BIN_SIZE;
+		indirectDispatchData.instanceCount = 1;
+		indirectDispatchData.firstVertex = 0;
+		indirectDispatchData.firstInstance = 0;
 
 		stagingBuffer = createStagingBuffer(bufferSize);
-		memcpy(stagingBuffer.mapped, &scatterDispatchData, (size_t)bufferSize);
+		memcpy(stagingBuffer.mapped, &indirectDispatchData, (size_t)bufferSize);
 
-		scatterIndirectDispatchBuffer = bufferAllocator.create({
+		indirectDispatchBuffer = bufferAllocator.create({
 			bufferSize,
 			val::BufferUsage::Indirect,
 			val::BufferLifetime::Static
 			});
 
-		copyBuffer(stagingBuffer.buffer, scatterIndirectDispatchBuffer.buffer, bufferSize);
+		copyBuffer(stagingBuffer.buffer, indirectDispatchBuffer.buffer, bufferSize);
 
 		stagingBuffer.dispose();
 		//
@@ -2802,7 +2812,7 @@ private:
 		binCountBuffer.dispose();
 		binOffsetsBuffer.dispose();
 		binSumBuffer.dispose();
-		scatterIndirectDispatchBuffer.dispose();
+		indirectDispatchBuffer.dispose();
 		materialsBuffer.dispose();
 		materialStagingBuffer.dispose();
 

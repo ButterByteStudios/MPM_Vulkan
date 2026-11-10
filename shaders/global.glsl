@@ -87,17 +87,6 @@ layout(set = 1, binding = BIND_PUBO) uniform ParameterUBO
 	float invDt;
 } pubo;
 
-layout(set = 1, binding = BIND_TUBO) uniform ToolUBO
-{
-	vec2 pos;
-	float toolSize;
-	uint toolShape;
-	uint particleCount;
-	uint stepCount;
-	float mass;
-	uint materialId;
-} tubo;
-
 uint blockIndex(uint x, uint y)
 {
 	return x + y * pubo.blockDimensions;
