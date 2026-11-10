@@ -35,14 +35,14 @@ layout(set = 0, std430, binding = BIND_BO) readonly buffer BlockBinOffsetsSSBOOu
     uint blockBinOffsets[];
 };
 
-layout(set = 0, std430, binding = BIND_BR) buffer BinSSBOInOut
-{
-	Bin bins[];
-};
-
 layout(set = 0, std430, binding = BIND_MAT) buffer MaterialsSSBOIn
 {
 	Material mats[];
+};
+
+layout(set = 2, std430, binding = BIND_BR) buffer BinSSBOInOut
+{
+	Bin bins[];
 };
 
 float qw0(float x)

@@ -13,12 +13,12 @@ layout(set = 0, std430, binding = BIND_BO) readonly buffer BlockBinOffsetsSSBOIn
     uint binOffsets[];
 };
 
-layout(set = 0, std430, binding = BIND_BR) readonly buffer BinSSBOIn
+layout(set = 2, std430, binding = BIND_BR) readonly buffer BinSSBOIn
 {
 	Bin binsIn[];
 };
 
-layout(set = 0, std430, binding = BIND_BW) writeonly buffer BinSSBOOut
+layout(set = 2, std430, binding = BIND_BW) writeonly buffer BinSSBOOut
 {
 	Bin binsOut[];
 };

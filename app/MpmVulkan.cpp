@@ -257,6 +257,7 @@ private:
 
 	dsl::DescriptorAllocator substepComputeDescriptorAllocator;
 	dsl::DescriptorAllocator frameComputeDescriptorAllocator;
+	dsl::DescriptorAllocator binDescriptorAllocator;
 	dsl::DescriptorAllocator graphicsDescriptorAllocator;
 	dsl::DescriptorAllocator imguiDescriptorAllocator;
 	ldl::DeviceBuilder deviceBuilder;
@@ -271,8 +272,10 @@ private:
 	
 	std::vector<VkDescriptorSet> substepDescriptorSets;
 	std::vector<VkDescriptorSet> frameDescriptorSets;
+	std::vector<VkDescriptorSet> binDescriptorSets;
 	VkDescriptorSetLayout substepComputeDescriptorSetLayout;
 	VkDescriptorSetLayout frameComputeDescriptorSetLayout;
+	VkDescriptorSetLayout binDescriptorSetLayout;
 	VkPipelineLayout computePipelineLayout;
 
 	VkPipeline g2p2gComputePipeline;
@@ -317,6 +320,7 @@ private:
 
 	uint32_t currentFrame = 0;
 	uint32_t currentCompute = 0;
+	uint32_t currentBin = 0;
 
 	val::VulkanAllocator bufferAllocator;
 
@@ -330,9 +334,6 @@ private:
 	val::AllocatedBuffer binSumBuffer;
 	val::AllocatedBuffer materialsBuffer; // add a framesinflight amount of material buffers in case it gets used in rendering
 	val::AllocatedBuffer materialStagingBuffer;
-	// If spawning happends, add another compute shader after g2p2g which spawns Particles into this buffer and atomically adds to the counters
-	// After the scatter, run another compute shader to add the spawned particles
-	val::AllocatedBuffer spawnBuffer; 
 
 	val::AllocatedBuffer indirectDispatchBuffer;
 
@@ -435,11 +436,11 @@ private:
 		createSwapchainImageViews();
 		createRenderPass();
 		createUniformBuffers();
+		createCommandPools();
+		createShaderStorageBuffers();
 		createGraphicsDescriptors();
 		createGraphicsPipeline();
 		createFrameBuffers();
-		createCommandPools();
-		createShaderStorageBuffers();
 		createComputeDescriptors();
 		createComputePipelines();
 		createCommandBuffers();
@@ -1193,6 +1194,60 @@ private:
 
 			vkUpdateDescriptorSets(device, (uint32_t)descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
 		}
+
+		std::vector<dsl::DescriptorAllocator::PoolSizeRatio> binSizes =
+		{
+			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2.0f / 2.0f }
+		};
+
+		binDescriptorAllocator.initPool(device, 2 * MAX_FRAMES_IN_FLIGHT, binSizes);
+
+		dsl::DescriptorLayoutBuilder binBuilder{};
+		binBuilder.addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // BR
+		binBuilder.addBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // BW
+
+		binBuilder.build(device, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT, binDescriptorSetLayout);
+
+		std::vector<VkDescriptorSetLayout> binLayouts(MAX_FRAMES_IN_FLIGHT, binDescriptorSetLayout);
+
+		binDescriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+		binDescriptorAllocator.allocate(device, binLayouts.data(), (uint32_t)MAX_FRAMES_IN_FLIGHT, binDescriptorSets.data());
+
+		for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+		{
+			uint32_t binding = 0;
+			std::array<VkWriteDescriptorSet, 2> descriptorWrites{};
+
+			VkDescriptorBufferInfo binBufferReadInfo{};
+			binBufferReadInfo.buffer = binBuffers[i].buffer;
+			binBufferReadInfo.offset = 0;
+			binBufferReadInfo.range = sizeof(Bin) * binCount;
+
+			binding = 0;
+			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[binding].dstSet = binDescriptorSets[i];
+			descriptorWrites[binding].dstBinding = binding;
+			descriptorWrites[binding].dstArrayElement = 0;
+			descriptorWrites[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			descriptorWrites[binding].descriptorCount = 1;
+			descriptorWrites[binding].pBufferInfo = &binBufferReadInfo;
+
+			VkDescriptorBufferInfo BinBufferWriteInfo{};
+			BinBufferWriteInfo.buffer = binBuffers[(i + 1) % MAX_FRAMES_IN_FLIGHT].buffer;
+			BinBufferWriteInfo.offset = 0;
+			BinBufferWriteInfo.range = sizeof(Bin) * binCount;
+
+			binding = 1;
+			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[binding].dstSet = binDescriptorSets[i];
+			descriptorWrites[binding].dstBinding = binding;
+			descriptorWrites[binding].dstArrayElement = 0;
+			descriptorWrites[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			descriptorWrites[binding].descriptorCount = 1;
+			descriptorWrites[binding].pBufferInfo = &BinBufferWriteInfo;
+
+			vkUpdateDescriptorSets(device, descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
+		}
 	}
 
 	void createGraphicsPipeline()
@@ -1304,11 +1359,11 @@ private:
 		colorBlending.blendConstants[2] = 0.0f;
 		colorBlending.blendConstants[3] = 0.0f;
 
-		std::vector<VkDescriptorSetLayout> descriptorSetLayouts{ graphicsDescriptorSetLayout, substepComputeDescriptorSetLayout };
+		std::vector<VkDescriptorSetLayout> descriptorSetLayouts{ graphicsDescriptorSetLayout, binDescriptorSetLayout };
 
 		VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
 		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-		pipelineLayoutInfo.setLayoutCount = 2;
+		pipelineLayoutInfo.setLayoutCount = static_cast<uint32_t>(descriptorSetLayouts.size());
 		pipelineLayoutInfo.pSetLayouts = descriptorSetLayouts.data();
 
 		if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &graphicsPipelineLayout) != VK_SUCCESS)
@@ -1350,10 +1405,10 @@ private:
 	{
 		std::vector<dsl::DescriptorAllocator::PoolSizeRatio> substepSizes =
 		{
-			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 11.0f / 11.0f }
+			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 9.0f / 9.0f }
 		};
 
-		substepComputeDescriptorAllocator.initPool(device, 2 * 11, substepSizes);
+		substepComputeDescriptorAllocator.initPool(device, 2 * 9, substepSizes);
 
 		dsl::DescriptorLayoutBuilder substepBuilder{};
 		substepBuilder.addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // VR
@@ -1363,10 +1418,8 @@ private:
 		substepBuilder.addBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // BC
 		substepBuilder.addBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // BO
 		substepBuilder.addBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // BS
-		substepBuilder.addBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // BR
-		substepBuilder.addBinding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // BW
-		substepBuilder.addBinding(9, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // SID
-		substepBuilder.addBinding(10, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // MAT
+		substepBuilder.addBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // SID
+		substepBuilder.addBinding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // MAT
 
 		substepBuilder.build(device, VK_SHADER_STAGE_COMPUTE_BIT, substepComputeDescriptorSetLayout);
 
@@ -1378,7 +1431,7 @@ private:
 		for (size_t i = 0; i < 2; i++)
 		{
 			uint32_t binding = 0;
-			std::array<VkWriteDescriptorSet, 11> descriptorWrites{};
+			std::array<VkWriteDescriptorSet, 9> descriptorWrites{};
 
 			VkDescriptorBufferInfo vBufferReadInfo{};
 			vBufferReadInfo.buffer = vBuffers[(i + 2 - 1) % 2].buffer;
@@ -1478,40 +1531,12 @@ private:
 			descriptorWrites[binding].descriptorCount = 1;
 			descriptorWrites[binding].pBufferInfo = &binSumBufferInfo;
 
-			VkDescriptorBufferInfo binBufferReadInfo{};
-			binBufferReadInfo.buffer = binBuffers[(i + 2 - 1) % 2].buffer;
-			binBufferReadInfo.offset = 0;
-			binBufferReadInfo.range = sizeof(Bin) * binCount;
-
-			binding = 7;
-			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			descriptorWrites[binding].dstSet = substepDescriptorSets[i];
-			descriptorWrites[binding].dstBinding = binding;
-			descriptorWrites[binding].dstArrayElement = 0;
-			descriptorWrites[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-			descriptorWrites[binding].descriptorCount = 1;
-			descriptorWrites[binding].pBufferInfo = &binBufferReadInfo;
-
-			VkDescriptorBufferInfo BinBufferWriteInfo{};
-			BinBufferWriteInfo.buffer = binBuffers[i].buffer;
-			BinBufferWriteInfo.offset = 0;
-			BinBufferWriteInfo.range = sizeof(Bin) * binCount;
-
-			binding = 8;
-			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			descriptorWrites[binding].dstSet = substepDescriptorSets[i];
-			descriptorWrites[binding].dstBinding = binding;
-			descriptorWrites[binding].dstArrayElement = 0;
-			descriptorWrites[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-			descriptorWrites[binding].descriptorCount = 1;
-			descriptorWrites[binding].pBufferInfo = &BinBufferWriteInfo;
-
 			VkDescriptorBufferInfo indirectDispatchBufferInfo{};
 			indirectDispatchBufferInfo.buffer = indirectDispatchBuffer.buffer;
 			indirectDispatchBufferInfo.offset = 0;
 			indirectDispatchBufferInfo.range = sizeof(IndirectDispatchData);
 
-			binding = 9;
+			binding = 7;
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			descriptorWrites[binding].dstSet = substepDescriptorSets[i];
 			descriptorWrites[binding].dstBinding = binding;
@@ -1525,7 +1550,7 @@ private:
 			materialsBufferInfo.offset = 0;
 			materialsBufferInfo.range = sizeof(uil::MaterialLayout) * MAX_MATERIAL_COUNT;
 
-			binding = 10;
+			binding = 8;
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			descriptorWrites[binding].dstSet = substepDescriptorSets[i];
 			descriptorWrites[binding].dstBinding = binding;
@@ -1649,7 +1674,8 @@ private:
 
 		std::vector<VkDescriptorSetLayout> setLayouts{
 			substepComputeDescriptorSetLayout,
-			frameComputeDescriptorSetLayout
+			frameComputeDescriptorSetLayout,
+			binDescriptorSetLayout
 		};
 
 		VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
@@ -1806,6 +1832,7 @@ private:
 		vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
 		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipelineLayout, 0, 1, &graphicsDescriptorSets[currentFrame], 0, nullptr);
+		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipelineLayout, 1, 1, &binDescriptorSets[currentBin], 0, nullptr);
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
 
 		VkViewport viewPort{};
@@ -1895,6 +1922,7 @@ private:
 			for (uint32_t i = 0; i < substeps; i++)
 			{
 				vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &substepDescriptorSets[currentCompute], 0, nullptr);
+				vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 2, 1, &binDescriptorSets[currentBin], 0, nullptr);
 
 				vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, g2p2gComputePipeline);
 				vkCmdDispatch(commandBuffer, particleBlockDimensions, particleBlockDimensions, 1);
@@ -1997,6 +2025,7 @@ private:
 					0, nullptr
 				);
 
+				currentBin = (currentBin + 1) % MAX_FRAMES_IN_FLIGHT;
 				currentCompute = (currentCompute + 1) % 2;
 				stepCount++;
 			}
@@ -2004,6 +2033,7 @@ private:
 		else
 		{
 			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &substepDescriptorSets[currentCompute], 0, nullptr);
+			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 2, 1, &binDescriptorSets[currentBin], 0, nullptr);
 		}
 
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, graphicsscatterComputePipeline);
@@ -2205,7 +2235,7 @@ private:
 		stagingBuffer = createStagingBuffer(bufferSize);
 		memcpy(stagingBuffer.mapped, v.data(), (size_t)bufferSize);
 
-		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+		for (size_t i = 0; i < 2; i++)
 		{
 			vBuffers[i] = bufferAllocator.create({
 				bufferSize,
@@ -2795,11 +2825,13 @@ private:
 		graphicsDescriptorAllocator.destroyPool(device);
 		substepComputeDescriptorAllocator.destroyPool(device);
 		frameComputeDescriptorAllocator.destroyPool(device);
+		binDescriptorAllocator.destroyPool(device);
 		imguiDescriptorAllocator.destroyPool(device);
 
 		vkDestroyDescriptorSetLayout(device, graphicsDescriptorSetLayout, nullptr);
 		vkDestroyDescriptorSetLayout(device, substepComputeDescriptorSetLayout, nullptr);
 		vkDestroyDescriptorSetLayout(device, frameComputeDescriptorSetLayout, nullptr);
+		vkDestroyDescriptorSetLayout(device, binDescriptorSetLayout, nullptr);
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{

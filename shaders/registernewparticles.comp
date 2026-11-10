@@ -19,7 +19,7 @@ layout(set = 0, std430, binding = BIND_H) writeonly buffer BlockHistogramSSBOOut
 	uint histogram[];
 };
 
-layout(set = 0, std430, binding = BIND_BR) writeonly buffer BinSSBOOut
+layout(set = 2, std430, binding = BIND_BR) writeonly buffer BinSSBOOut
 {
 	Bin bins[];
 };

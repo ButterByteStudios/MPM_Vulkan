@@ -2,6 +2,9 @@
 
 #define BIN_SIZE (64)
 
+#define LOG2_BIN_SIZE (6)
+#define BIN_MASK (BIN_SIZE - 1u)
+
 struct Bin
 {
 	mat2[BIN_SIZE] F;
@@ -14,12 +17,15 @@ struct Bin
 	uint particleCount;
 };
 
-layout(set = 1, std430, binding = 8) readonly buffer BinSSBOIn
+layout(set = 1, std430, binding = 0) readonly buffer BinSSBO1
 {
 	Bin binsIn[];
 };
 
-// Render straight out of bins. Start binsused*binsize vertices using the indirect buffer with 3*32 bit offset. Every vertex is a particle in the used bins and we can just discard the particles outside out the particlecount
+layout(set = 1, std430, binding = 1) readonly buffer BinSSBO2
+{
+	Bin binsOut[];
+};
 
 layout(set = 0, binding = 0) uniform ParameterUBO
 {
@@ -46,12 +52,26 @@ layout(location = 0) out vec3 fragColor;
 
 void main()
 {
-	gl_PointSize = 2.0;
-	
-	// Map position from 0-dimensions to 0-1
-	vec2 pos = inPosition / pubo.dimensions * 2.0 - 1.0;
-	vec2 offset = pos - cam.pos;
-	vec2 scaled = offset * cam.zoom;
-	gl_Position = vec4(scaled.x * cam.invAspectRatio, -scaled.y, 0.0, 1.0);
-	fragColor = inColor.rgb;
+	int particle = gl_VertexIndex;
+	int bin = particle >> LOG2_BIN_SIZE;
+	uint particleInBin = particle & BIN_MASK;
+	uint particleCount = binsIn[particleInBin].particleCount;
+
+	if (particleInBin >= particleCount)
+	{
+		gl_PointSize = 0.0;
+		// Map position from 0-dimensions to 0-1
+		gl_Position = vec4(100000, 100000, 0.0, 1.0);
+		fragColor = vec3(0, 0, 0);
+	}
+	else
+	{
+		gl_PointSize = 2.0;
+		// Map position from 0-dimensions to 0-1
+		vec2 pos = binsIn[bin].position[particleInBin] / pubo.dimensions * 2.0 - 1.0;
+		vec2 offset = pos - cam.pos;
+		vec2 scaled = offset * cam.zoom;
+		gl_Position = vec4(scaled.x * cam.invAspectRatio, -scaled.y, 0.0, 1.0);
+		fragColor = vec3(1, 1, 1);
+	}
 }
