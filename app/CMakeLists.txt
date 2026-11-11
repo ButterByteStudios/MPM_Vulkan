@@ -1,4 +1,4 @@
-﻿add_executable(MpmVulkan "MpmVulkan.cpp" "../src/uil/src/MaterialsMenu.cpp" "../src/uil/include/uil/MaterialsManager.h")
+﻿add_executable(MpmVulkan "MpmVulkan.cpp" "../src/uil/src/UI/MaterialsMenu.cpp" "../src/uil/include/uil/MaterialsManager.h")
 
 target_include_directories(MpmVulkan
 	PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include

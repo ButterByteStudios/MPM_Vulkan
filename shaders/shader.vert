@@ -58,17 +58,18 @@ void main()
 	{
 		gl_PointSize = 0.0;
 		// Map position from 0-dimensions to 0-1
-		gl_Position = vec4(100000, 100000, 0.0, 1.0);
+		gl_Position = vec4(100000, 100000, 0.0, 0.0);
 		fragColor = vec3(0, 0, 0);
 	}
 	else
 	{
 		gl_PointSize = 2.0;
-		// Map position from 0-dimensions to 0-1
-		vec2 pos = binsIn[bin].position[particleInBin] / pubo.dimensions * 2.0 - 1.0;
-		vec2 offset = pos - cam.pos;
-		vec2 scaled = offset * cam.zoom;
-		gl_Position = vec4(scaled.x * cam.invAspectRatio, -scaled.y, 0.0, 1.0);
+		// Map position from 0-dimensions to 0-2
+		vec2 pos = binsIn[bin].position[particleInBin] / pubo.dimensions - 0.5;
+		vec2 relative = pos - cam.pos;
+		vec2 scaled = relative * cam.zoom;
+		vec2 clipPos = scaled * 2.0;
+		gl_Position = vec4(clipPos.x * cam.invAspectRatio, -clipPos.y, 0.0, 1.0);
 		fragColor = vec3(1, 1, 1);
 	}
 }

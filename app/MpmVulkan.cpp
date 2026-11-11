@@ -32,13 +32,12 @@
 #include <fstream>
 #include <array>
 #include <random>
-#include <optional>
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 800;
 const uint32_t MAX_MATERIAL_COUNT = 10;
 const uint32_t MAX_FRAMES_IN_FLIGHT = 2;
-const uint32_t PARTICLE_COUNT = 1 << 16;
+const uint32_t MAX_PARTICLE_COUNT = 1 << 19;
 const uint32_t BIN_KERNEL_SIZE = 1;
 const uint32_t GRID_KERNEL_SIZE = 32;
 const uint32_t BLOCK_KERNEL_SIZE = 16;
@@ -83,7 +82,6 @@ struct alignas(8) ParameterUBO
 	uint32_t blocks;
 	float dt;
 	float invDt;
-	uint32_t stepCount;
 };
 
 struct alignas(8) CameraUBO
@@ -251,6 +249,7 @@ private:
 	VkPipeline totalextractionComputePipeline;
 	VkPipeline clearhistogramComputePipeline;
 	VkPipeline gridComputePipeline;
+	VkPipeline registerparticlesComputePipeline;
 
 	VkSwapchainKHR swapChain;
 	std::vector<VkImage> swapChainImages;
@@ -310,7 +309,7 @@ private:
 	uint32_t paddedParticleBlockDimensions = glm::exp2(glm::ceil(glm::log2(static_cast<float>(gridBlockDimensions))));
 	uint32_t paddedParticleBlockCount = paddedParticleBlockDimensions * paddedParticleBlockDimensions;
 
-	uint32_t binCount = particleBlockDimensions * particleBlockDimensions + ceilIntDivision(PARTICLE_COUNT, BIN_SIZE); // Impossibly worst case scenario. Every bin is full and all blocks have one non-full bin
+	uint32_t binCount = particleBlockDimensions * particleBlockDimensions + ceilIntDivision(MAX_PARTICLE_COUNT, BIN_SIZE); // Impossibly worst case scenario. Every bin is full and all blocks have one non-full bin
 
 	double lastTime = 0;
 	double lastFrameTime = 0;
@@ -326,9 +325,13 @@ private:
 	float dt = 0.00001f;
 	float size = 0.4f;
 	uint32_t substeps = 15;
-	glm::vec2 cameraPos = glm::vec2(0);
+	glm::vec2 cameraPos = glm::vec2(0.0);
 	float zoom = 1;
 	glm::vec2 accel = glm::vec2(0);
+
+	// Add tool demo
+	bool addParticles = false;
+	uint32_t particleCount = 0;
 
 	void mainLoop()
 	{
@@ -337,9 +340,6 @@ private:
 			iml::MouseInput::clearFrameValues();
 			iml::KeyInput::clearFrameValues();
 			glfwPollEvents();
-
-			int width, height;
-			glfwGetFramebufferSize(window, &width, &height);
 
 			uiManager->render();
 
@@ -675,23 +675,28 @@ private:
 		int x = keyInput.isKeyDown(GLFW_KEY_D) - keyInput.isKeyDown(GLFW_KEY_A);
 
 		glm::vec2 mousePos = glm::vec2((float)mouseInput.posX, (float)mouseInput.posY);
-		glm::vec2 deltaMouse = mouseInput.getIsButtonDown(GLFW_MOUSE_BUTTON_RIGHT) ? lastMousePos - mousePos : glm::vec2(0);
+		glm::vec2 deltaMouse = mouseInput.getIsButtonDown(GLFW_MOUSE_BUTTON_RIGHT) ? mousePos - lastMousePos : glm::vec2(0);
 		lastMousePos = mousePos;
 
 		int width, height;
 		glfwGetFramebufferSize(window, &width, &height);
 
 		// height determines what 1 unit of screenspace is. The simulation renders as 1x1 centered on 0,0
-		deltaMouse = screenspaceToWorldspace(deltaMouse);
+		deltaMouse = screenspaceToCamspace(deltaMouse);
 
 		zoom += (mouseInput.scrollDY * scrollSensitivity) * zoom;
 
-		cameraPos += deltaMouse * sensitivity / zoom;
+		cameraPos -= deltaMouse * sensitivity / zoom;
 		accel = glm::vec2(x, y) * 20.0f / dx;
 
 		if (keyInput.wasKeyPressed(GLFW_KEY_SPACE))
 		{
 			pausedSimulation = !pausedSimulation;
+		}
+
+		if (mouseInput.getIsButtonDown(GLFW_MOUSE_BUTTON_LEFT))
+		{
+			addParticles = true;
 		}
 	}
 
@@ -794,7 +799,6 @@ private:
 		pUBO.dt = dt;
 		pUBO.invDt = 1.0f / pUBO.dt;
 		pUBO.speed = accel;
-		pUBO.stepCount = static_cast<uint32_t>(stepCount);
 
 		memcpy(parameterBuffers[currentImage].mapped, &pUBO, sizeof(pUBO));
 
@@ -809,8 +813,28 @@ private:
 		memcpy(cameraBuffers[currentImage].mapped, &cUBO, sizeof(cUBO));
 
 		ToolUBO tUBO{};
-		tUBO.pos = glm::vec2(mouseInput.posX, mouseInput.posY);
+		tUBO.toolSize = 2.0f;
+
+		glm::vec2 cellspaceRelativeMouse = screenspaceToCamspace(glm::vec2(mouseInput.posX, -mouseInput.posY));
+		cellspaceRelativeMouse.y -= 0.5f;
+		cellspaceRelativeMouse.x -= (float)width / (float)height * 0.5f;
+		cellspaceRelativeMouse *= static_cast<float>(dimensions);
+		cellspaceRelativeMouse.y *= -1;
+
+		std::cout << cellspaceRelativeMouse.x << " " << cellspaceRelativeMouse.y << "\n";
+		glm::vec2 cellspaceCamCenter = (cameraPos + 0.5f) * static_cast<float>(dimensions);
+		tUBO.pos = glm::clamp(cellspaceCamCenter + cellspaceRelativeMouse, 4.0f + tUBO.toolSize / 2.0f, static_cast<float>(dimensions) - 4.0f - tUBO.toolSize / 2.0f);
+		//tUBO.pos = (cameraPos + 0.5f) * static_cast<float>(dimensions);
+		//std::cout << tUBO.pos.x << " " << tUBO.pos.y << "\n";
+		tUBO.toolShape = 0;
+		int particlesLeft = static_cast<int>(MAX_PARTICLE_COUNT) - (static_cast<int>(particleCount));
+		if (particlesLeft == 0)
+			addParticles = false;
+
+		tUBO.particleCount = particlesLeft < 64 ? 0 : 64;
 		tUBO.stepCount = stepCount;
+		tUBO.mass = 1;
+		tUBO.materialId = 0;
 
 		memcpy(toolBuffers[currentImage].mapped, &tUBO, sizeof(tUBO));
 	}
@@ -1590,6 +1614,7 @@ private:
 		auto totalextractionCode = readFile("../shaders/totalextraction.comp.spv");
 		auto clearhistogramCode = readFile("../shaders/clearhistogram.comp.spv");
 		auto gridCode = readFile("../shaders/grid.comp.spv");
+		auto registerparticlesCode = readFile("../shaders/registerparticles.comp.spv");
 
 		std::vector<VkShaderModule> shaderModules =
 		{
@@ -1601,7 +1626,8 @@ private:
 			createShaderModule(scatterCode),
 			createShaderModule(totalextractionCode),
 			createShaderModule(clearhistogramCode),
-			createShaderModule(gridCode)
+			createShaderModule(gridCode),
+			createShaderModule(registerparticlesCode)
 		};
 
 		std::vector<VkPipelineShaderStageCreateInfo> stageInfos{};
@@ -1661,6 +1687,7 @@ private:
 		totalextractionComputePipeline = pipelines[6];
 		clearhistogramComputePipeline = pipelines[7];
 		gridComputePipeline = pipelines[8];
+		registerparticlesComputePipeline = pipelines[9];
 
 		for (VkShaderModule& module : shaderModules)
 		{
@@ -1865,8 +1892,6 @@ private:
 
 		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 1, 1, &frameDescriptorSets[currentFrame], 0, nullptr);
 
-		// Register new particles
-
 		for (uint32_t i = 0; i < substeps; i++)
 		{
 			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &substepDescriptorSets[currentCompute], 0, nullptr);
@@ -1883,6 +1908,24 @@ private:
 				0, nullptr,
 				0, nullptr
 			);
+
+			if (addParticles)
+			{
+				addParticles = false;
+				particleCount += 64;
+
+				vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, registerparticlesComputePipeline);
+				vkCmdDispatch(commandBuffer, 1, 1, 1);
+				
+				vkCmdPipelineBarrier(commandBuffer,
+					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+					0,
+					1, &computeToIndirectBarrier,
+					0, nullptr,
+					0, nullptr
+				);
+			}
 
 			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, gridComputePipeline);
 			vkCmdDispatch(commandBuffer, ceilIntDivision(dimensions, GRID_KERNEL_SIZE), ceilIntDivision(dimensions, GRID_KERNEL_SIZE), 1);
@@ -2078,7 +2121,7 @@ private:
 		float worldR = size * (dimensions / 2) * dx;
 		float volume = worldR * worldR * pi;
 		float totalMass = volume * 1000;
-		float mass = totalMass / PARTICLE_COUNT;
+		float mass = totalMass / MAX_PARTICLE_COUNT;
 
 		//std::default_random_engine rndEngine((unsigned)time(nullptr));
 		std::default_random_engine rndEngine((unsigned)2u);
@@ -2087,64 +2130,64 @@ private:
 		uint32_t cells = nodeCount;
 
 		std::vector<uint32_t> histogram(paddedParticleBlockCount);
-		std::vector<glm::vec2> particles(PARTICLE_COUNT);
-		std::vector<uint32_t> blockIndices(PARTICLE_COUNT);
-		std::vector<uint32_t> blockPIndex(PARTICLE_COUNT);
-		for (size_t i = 0; i < PARTICLE_COUNT; i++)
-		{
-			//float r = size * sqrt(rndDist(rndEngine));
-			//float theta = rndDist(rndEngine) * 2 * pi;
-			//float x = r * cos(theta);
-			//float y = r * sin(theta);
-
-			float x = size * rndDist(rndEngine) * dimensions + dimensions / 2 - size * dimensions / 2;
-			float y = size * rndDist(rndEngine) * dimensions + dimensions / 2 - size * dimensions / 2;
-			//x = (x + 1.0f) / 2.0f * dimensions;
-			//y = (y + 1.0f) / 2.0f * dimensions;
-
-			glm::vec2 cellPos = glm::vec2(x, y);
-			glm::ivec2 coords = glm::ivec2(glm::floor(cellPos - 1.5f));
-			glm::ivec2 blockCoords = coords / 4;
-			uint32_t blockIndex = blockCoords.x + blockCoords.y * particleBlockDimensions;
-
-			blockIndices[i] = blockIndex;
-			auto test1 = blockPIndex[i];
-			auto test2 = histogram[blockIndex];
-			blockPIndex[i] = histogram[blockIndex]++;
-			particles[i] = cellPos;
-		}
+		std::vector<glm::vec2> particles(MAX_PARTICLE_COUNT);
+		std::vector<uint32_t> blockIndices(MAX_PARTICLE_COUNT);
+		std::vector<uint32_t> blockPIndex(MAX_PARTICLE_COUNT);
+		//for (size_t i = 0; i < MAX_PARTICLE_COUNT; i++)
+		//{
+		//	//float r = size * sqrt(rndDist(rndEngine));
+		//	//float theta = rndDist(rndEngine) * 2 * pi;
+		//	//float x = r * cos(theta);
+		//	//float y = r * sin(theta);
+		//
+		//	float x = size * rndDist(rndEngine) * dimensions + dimensions / 2 - size * dimensions / 2;
+		//	float y = size * rndDist(rndEngine) * dimensions + dimensions / 2 - size * dimensions / 2;
+		//	//x = (x + 1.0f) / 2.0f * dimensions;
+		//	//y = (y + 1.0f) / 2.0f * dimensions;
+		//
+		//	glm::vec2 cellPos = glm::vec2(x, y);
+		//	glm::ivec2 coords = glm::ivec2(glm::floor(cellPos - 1.5f));
+		//	glm::ivec2 blockCoords = coords / 4;
+		//	uint32_t blockIndex = blockCoords.x + blockCoords.y * particleBlockDimensions;
+		//
+		//	blockIndices[i] = blockIndex;
+		//	auto test1 = blockPIndex[i];
+		//	auto test2 = histogram[blockIndex];
+		//	blockPIndex[i] = histogram[blockIndex]++;
+		//	particles[i] = cellPos;
+		//}
 
 		std::vector<uint32_t> binCounts(paddedParticleBlockCount);
 		std::vector<uint32_t> binOffsets(paddedParticleBlockCount);
 
-		for (size_t i = 1; i < paddedParticleBlockCount; i++)
-		{
-			uint32_t binCount = ceilIntDivision(histogram[i - 1], BIN_SIZE);
-			binCounts[i - 1] = binCount;
-			binOffsets[i] = binCount + binOffsets[i - 1];
-
-		}
+		//for (size_t i = 1; i < paddedParticleBlockCount; i++)
+		//{
+		//	uint32_t binCount = ceilIntDivision(histogram[i - 1], BIN_SIZE);
+		//	binCounts[i - 1] = binCount;
+		//	binOffsets[i] = binCount + binOffsets[i - 1];
+		//
+		//}
 		binCounts[paddedParticleBlockCount - 1] = ceilIntDivision(histogram[paddedParticleBlockCount - 1], BIN_SIZE);
 		uint32_t totalUsedBins = binOffsets[paddedParticleBlockCount - 1] + binCounts[paddedParticleBlockCount - 1];
 
 		std::vector<Bin> bins(binCount);
-		for (size_t i = 0; i < PARTICLE_COUNT; i++)
-		{
-			glm::vec2 pos = particles[i];
-			uint32_t blockIndex = blockIndices[i];
-			uint32_t baseBin = binOffsets[blockIndex];
-			uint32_t binIndex = baseBin + (blockPIndex[i] / BIN_SIZE);
-			uint32_t pIndex = blockPIndex[i] % BIN_SIZE;
-
-			bins[binIndex].F[pIndex] = glm::mat2(1.0f);
-			bins[binIndex].position[pIndex] = pos;
-			bins[binIndex].mass[pIndex] = mass;
-			bins[binIndex].hardening[pIndex] = hardening;
-			bins[binIndex].blockParticleIndex[pIndex] = blockPIndex[i];
-			bins[binIndex].particleId[pIndex] = i;
-			bins[binIndex].materialId[pIndex] = defaultMaterial;
-			bins[binIndex].particleCount++;
-		}
+		//for (size_t i = 0; i < MAX_PARTICLE_COUNT; i++)
+		//{
+		//	glm::vec2 pos = particles[i];
+		//	uint32_t blockIndex = blockIndices[i];
+		//	uint32_t baseBin = binOffsets[blockIndex];
+		//	uint32_t binIndex = baseBin + (blockPIndex[i] / BIN_SIZE);
+		//	uint32_t pIndex = blockPIndex[i] % BIN_SIZE;
+		//
+		//	bins[binIndex].F[pIndex] = glm::mat2(1.0f);
+		//	bins[binIndex].position[pIndex] = pos;
+		//	bins[binIndex].mass[pIndex] = mass;
+		//	bins[binIndex].hardening[pIndex] = hardening;
+		//	bins[binIndex].blockParticleIndex[pIndex] = blockPIndex[i];
+		//	bins[binIndex].particleId[pIndex] = i;
+		//	bins[binIndex].materialId[pIndex] = defaultMaterial;
+		//	bins[binIndex].particleCount++;
+		//}
 
 		// Bins
 		VkDeviceSize bufferSize = sizeof(Bin) * binCount;
@@ -2723,6 +2766,7 @@ private:
 		vkDestroyPipeline(device, scatterComputePipeline, nullptr);
 		vkDestroyPipeline(device, clearhistogramComputePipeline, nullptr);
 		vkDestroyPipeline(device, gridComputePipeline, nullptr);
+		vkDestroyPipeline(device, registerparticlesComputePipeline, nullptr);
 		vkDestroyPipelineLayout(device, computePipelineLayout, nullptr);
 
 		vkDestroyRenderPass(device, renderPass, nullptr);
@@ -2824,13 +2868,15 @@ private:
 		app->framebufferResized = true;
 	}
 
-	glm::vec2 screenspaceToWorldspace(glm::vec2 pos)
+	glm::vec2 screenspaceToCamspace(glm::vec2 pos)
 	{
 		int width, height;
 		glfwGetFramebufferSize(window, &width, &height);
 
-		// height determines what 1 unit of screenspace is. The simulation renders as 1x1 centered on 0,0
-		return pos / static_cast<float>(height);
+		return glm::vec2(
+			pos.x / static_cast<float>(height),
+			-pos.y / static_cast<float>(height)
+		);
 	}
 };
 

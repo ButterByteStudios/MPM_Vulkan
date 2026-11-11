@@ -9,8 +9,7 @@
 #define BIND_MAT (8)
 
 #define BIND_PUBO (0)
-#define BIND_G (1)
-#define BIND_TUBO (2)
+#define BIND_TUBO (1)
 
 #define BIND_BR (0)
 #define BIND_BW (1)

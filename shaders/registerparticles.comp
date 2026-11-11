@@ -40,6 +40,10 @@ layout(local_size_x = BIN_SIZE, local_size_y = 1, local_size_z = 1) in;
 
 void main()
 {
+    uint bIndex = scatterX + gl_WorkGroupID.x;
+    uint pIndex = gl_LocalInvocationID.x;
+    int particleCount = min(int(tubo.particleCount) - int(gl_WorkGroupID.x) * int(BIN_SIZE), int(BIN_SIZE));
+
     uint id = gl_GlobalInvocationID.x;
     if (id == 0)
     {
@@ -47,23 +51,18 @@ void main()
         scatterX += (tubo.particleCount + BIN_SIZE - 1) >> LOG2_BIN_SIZE;
     }
 
-    uint firstScatterBin = scatterX + 1;
-    uint bIndex = firstScatterBin + gl_WorkGroupID.x;
-    uint pIndex = gl_LocalInvocationID.x;
-    uint particleCount = min(tubo.particleCount - bIndex * BIN_SIZE, BIN_SIZE);
-
     if (pIndex >= particleCount)
         return;
 
     // Calculate particle positions uniformly and randomly in the brush
     vec3 random = hash32(uvec2(id, tubo.stepCount));
 
-    vec2 cellPosition;
+    vec2 cellPosition = tubo.pos;
 
     switch (tubo.toolShape)
     {
         case CIRCLE:
-            cellPosition = circleDistribution(random, tubo.toolSize);
+            cellPosition += circleDistribution(random, tubo.toolSize);
             break;
         case SQUARE:
             break;
