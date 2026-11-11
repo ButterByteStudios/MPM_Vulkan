@@ -55,7 +55,7 @@ void main()
         return;
 
     // Calculate particle positions uniformly and randomly in the brush
-    vec3 random = hash32(uvec2(id, tubo.stepCount));
+    vec2 random = hash22(uvec2(id, tubo.stepCount));
 
     vec2 cellPosition = tubo.pos;
 

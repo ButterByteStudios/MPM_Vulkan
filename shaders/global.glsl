@@ -133,9 +133,10 @@ vec3 hash32(uvec2 q)
 }
 
 
-vec2 circleDistribution(vec3 random, float radius)
+vec2 circleDistribution(vec2 random, float radius)
 {
     const float pi2 = 6.2831854820251465;
-    float r = radius * sqrt(random.z);
-    return vec2(cos(random.x * pi2), sin(random.y * pi2)) * r;
+    float r = radius * sqrt(random.x);
+	float angle = random.y * pi2;
+    return vec2(cos(angle), sin(angle)) * r;
 }

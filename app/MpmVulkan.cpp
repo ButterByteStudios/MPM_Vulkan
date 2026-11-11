@@ -278,7 +278,7 @@ private:
 	std::optional<uil::UIManager> uiManager;
 
 	bool framebufferResized = false;
-	bool pausedSimulation = true;
+	bool pausedSimulation = false;
 
 	uint32_t currentFrame = 0;
 	uint32_t currentCompute = 0;
@@ -796,7 +796,7 @@ private:
 		pUBO.dimensions = dimensions;
 		pUBO.blockDimensions = particleBlockDimensions;
 		pUBO.blocks = particleBlockDimensions * particleBlockDimensions;
-		pUBO.dt = dt;
+		pUBO.dt = pausedSimulation ? 0 : dt;
 		pUBO.invDt = 1.0f / pUBO.dt;
 		pUBO.speed = accel;
 
@@ -821,7 +821,6 @@ private:
 		cellspaceRelativeMouse *= static_cast<float>(dimensions);
 		cellspaceRelativeMouse.y *= -1;
 
-		std::cout << cellspaceRelativeMouse.x << " " << cellspaceRelativeMouse.y << "\n";
 		glm::vec2 cellspaceCamCenter = (cameraPos + 0.5f) * static_cast<float>(dimensions);
 		tUBO.pos = glm::clamp(cellspaceCamCenter + cellspaceRelativeMouse, 4.0f + tUBO.toolSize / 2.0f, static_cast<float>(dimensions) - 4.0f - tUBO.toolSize / 2.0f);
 		//tUBO.pos = (cameraPos + 0.5f) * static_cast<float>(dimensions);
@@ -831,7 +830,7 @@ private:
 		if (particlesLeft == 0)
 			addParticles = false;
 
-		tUBO.particleCount = particlesLeft < 64 ? 0 : 64;
+		tUBO.particleCount = particlesLeft < 32 ? 0 : 32;
 		tUBO.stepCount = stepCount;
 		tUBO.mass = 1;
 		tUBO.materialId = 0;
@@ -1843,16 +1842,6 @@ private:
 		if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS)
 		{
 			throw std::runtime_error("Failed to begin recording compute command buffer.");
-		}
-
-		if (pausedSimulation)
-		{
-			if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS)
-			{
-				throw std::runtime_error("Failed to record compute command buffer");
-			}
-
-			return;
 		}
 
 		VkMemoryBarrier computeToComputeBarrier{};
