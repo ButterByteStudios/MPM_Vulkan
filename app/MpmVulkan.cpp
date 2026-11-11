@@ -94,6 +94,7 @@ struct alignas(8) CameraUBO
 struct alignas(8) ToolUBO
 {
 	glm::vec2 pos;
+	glm::vec2 previousPos;
 	float toolSize;
 	uint32_t toolShape;
 	uint32_t particleCount;
@@ -134,7 +135,6 @@ struct alignas(8) Bin
 	float mass[BIN_SIZE]; // 4 * 32 = 128
 	float hardening[BIN_SIZE];
 	uint32_t blockParticleIndex[BIN_SIZE]; // 4 * 32 = 128
-	uint32_t particleId[BIN_SIZE]; // 4 * 32
 	uint32_t materialId[BIN_SIZE]; // 4 * 32
 	uint32_t particleCount; // 4
 	// Max alignment = 8, so pad till nearest multiple of 8
@@ -302,28 +302,31 @@ private:
 	std::vector<val::AllocatedBuffer> cameraBuffers;
 	std::vector<val::AllocatedBuffer> toolBuffers;
 
-	uint32_t dimensions = 128;
+	uint32_t dimensions = 256;
 	uint32_t nodeCount = dimensions * dimensions;
 	uint32_t gridBlockDimensions = dimensions / 4;
 	uint32_t particleBlockDimensions = gridBlockDimensions - 1;
 	uint32_t paddedParticleBlockDimensions = glm::exp2(glm::ceil(glm::log2(static_cast<float>(gridBlockDimensions))));
 	uint32_t paddedParticleBlockCount = paddedParticleBlockDimensions * paddedParticleBlockDimensions;
 
-	uint32_t binCount = particleBlockDimensions * particleBlockDimensions + ceilIntDivision(MAX_PARTICLE_COUNT, BIN_SIZE); // Impossibly worst case scenario. Every bin is full and all blocks have one non-full bin
+	uint32_t binCount = particleBlockDimensions * particleBlockDimensions + ceilIntDivision(MAX_PARTICLE_COUNT, BIN_SIZE) + 1; // Impossibly worst case scenario. Every bin is full and all blocks have one non-full bin plus 1 bin for particle adding
 
 	double lastTime = 0;
 	double lastFrameTime = 0;
 	uint64_t stepCount = 0;
 
 	glm::vec2 lastMousePos = glm::vec2(0);
-	float sensitivity = 2.0f;
+	glm::vec2 mousePos = glm::vec2(0);
+	glm::vec2 lastCellspaceMousePos = glm::vec2(0);
+	glm::vec2 cellspaceMousePos = glm::vec2(0);
+
+	float sensitivity = 1.0f;
 	float scrollSensitivity = 0.05f;
 
 	int defaultMaterial = 2;
 	float hardening = -0.01;
-	float dx = 1.0f / dimensions;
+	float dx = 2.0f / dimensions;
 	float dt = 0.00001f;
-	float size = 0.4f;
 	uint32_t substeps = 15;
 	glm::vec2 cameraPos = glm::vec2(0.0);
 	float zoom = 1;
@@ -332,6 +335,8 @@ private:
 	// Add tool demo
 	bool addParticles = false;
 	uint32_t particleCount = 0;
+	uint32_t addParticleDensity = 32;
+	uint32_t addedParticleCount = 0;
 
 	void mainLoop()
 	{
@@ -348,18 +353,12 @@ private:
 				memcpy(materialStagingBuffer.mapped, materialsManager->materialLayouts.data(), sizeof(uil::MaterialLayout) * MAX_MATERIAL_COUNT);
 			}
 
-			ImGuiIO& io = ImGui::GetIO();
-
-			if (!io.WantCaptureMouse && !io.WantCaptureKeyboard)
-			{
-				getInput();
-			}
-			else
-				lastMousePos = glm::vec2((float)mouseInput.posX, (float)mouseInput.posY);
+			getInput();
 
 			drawFrame();
 
 			double currentTime = glfwGetTime();
+
 			lastFrameTime = currentTime - lastTime;
 			lastTime = currentTime;
 			stepCount++;
@@ -671,33 +670,45 @@ private:
 
 	void getInput()
 	{
-		int y = keyInput.isKeyDown(GLFW_KEY_W) - keyInput.isKeyDown(GLFW_KEY_S);
-		int x = keyInput.isKeyDown(GLFW_KEY_D) - keyInput.isKeyDown(GLFW_KEY_A);
+		ImGuiIO& io = ImGui::GetIO();
+		mousePos = glm::vec2((float)mouseInput.posX, (float)mouseInput.posY);
+		lastCellspaceMousePos = mousePosToCellspace(lastMousePos) / zoom;
+		cellspaceMousePos = mousePosToCellspace(mousePos) / zoom;
 
-		glm::vec2 mousePos = glm::vec2((float)mouseInput.posX, (float)mouseInput.posY);
-		glm::vec2 deltaMouse = mouseInput.getIsButtonDown(GLFW_MOUSE_BUTTON_RIGHT) ? mousePos - lastMousePos : glm::vec2(0);
+		if (!io.WantCaptureMouse)
+		{
+			glm::vec2 deltaMouse = mouseInput.getIsButtonDown(GLFW_MOUSE_BUTTON_RIGHT) ? mousePos - lastMousePos : glm::vec2(0);
+
+			int width, height;
+			glfwGetFramebufferSize(window, &width, &height);
+
+			// height determines what 1 unit of screenspace is. The simulation renders as 1x1 centered on 0,0
+			deltaMouse = screenspaceToCamspace(deltaMouse);
+			deltaMouse.y *= -1;
+
+			zoom += (mouseInput.scrollDY * scrollSensitivity) * zoom;
+
+			cameraPos -= deltaMouse * sensitivity / zoom;
+
+			if (mouseInput.getIsButtonDown(GLFW_MOUSE_BUTTON_LEFT))
+			{
+				addParticles = true;
+			}
+		}
+
+		if (!io.WantCaptureKeyboard)
+		{
+			int y = keyInput.isKeyDown(GLFW_KEY_W) - keyInput.isKeyDown(GLFW_KEY_S);
+			int x = keyInput.isKeyDown(GLFW_KEY_D) - keyInput.isKeyDown(GLFW_KEY_A);
+			accel = glm::vec2(x, y) * 20.0f / dx;
+
+			if (keyInput.wasKeyPressed(GLFW_KEY_SPACE))
+			{
+				pausedSimulation = !pausedSimulation;
+			}
+		}
+
 		lastMousePos = mousePos;
-
-		int width, height;
-		glfwGetFramebufferSize(window, &width, &height);
-
-		// height determines what 1 unit of screenspace is. The simulation renders as 1x1 centered on 0,0
-		deltaMouse = screenspaceToCamspace(deltaMouse);
-
-		zoom += (mouseInput.scrollDY * scrollSensitivity) * zoom;
-
-		cameraPos -= deltaMouse * sensitivity / zoom;
-		accel = glm::vec2(x, y) * 20.0f / dx;
-
-		if (keyInput.wasKeyPressed(GLFW_KEY_SPACE))
-		{
-			pausedSimulation = !pausedSimulation;
-		}
-
-		if (mouseInput.getIsButtonDown(GLFW_MOUSE_BUTTON_LEFT))
-		{
-			addParticles = true;
-		}
 	}
 
 	void drawFrame()
@@ -813,24 +824,30 @@ private:
 		memcpy(cameraBuffers[currentImage].mapped, &cUBO, sizeof(cUBO));
 
 		ToolUBO tUBO{};
-		tUBO.toolSize = 2.0f;
+		tUBO.toolSize = 4.0f;
 
-		glm::vec2 cellspaceRelativeMouse = screenspaceToCamspace(glm::vec2(mouseInput.posX, -mouseInput.posY));
-		cellspaceRelativeMouse.y -= 0.5f;
-		cellspaceRelativeMouse.x -= (float)width / (float)height * 0.5f;
-		cellspaceRelativeMouse *= static_cast<float>(dimensions);
-		cellspaceRelativeMouse.y *= -1;
+		glm::vec2 pos = glm::clamp(cellspaceMousePos, 4.0f + tUBO.toolSize, static_cast<float>(dimensions) - 4.0f - tUBO.toolSize);
+		glm::vec2 previousPos = glm::clamp(lastCellspaceMousePos, 4.0f + tUBO.toolSize, static_cast<float>(dimensions) - 4.0f - tUBO.toolSize);
+		float distance = glm::length(pos - previousPos);
 
-		glm::vec2 cellspaceCamCenter = (cameraPos + 0.5f) * static_cast<float>(dimensions);
-		tUBO.pos = glm::clamp(cellspaceCamCenter + cellspaceRelativeMouse, 4.0f + tUBO.toolSize / 2.0f, static_cast<float>(dimensions) - 4.0f - tUBO.toolSize / 2.0f);
-		//tUBO.pos = (cameraPos + 0.5f) * static_cast<float>(dimensions);
-		//std::cout << tUBO.pos.x << " " << tUBO.pos.y << "\n";
+		tUBO.pos = pos;
+		tUBO.previousPos = previousPos;
 		tUBO.toolShape = 0;
 		int particlesLeft = static_cast<int>(MAX_PARTICLE_COUNT) - (static_cast<int>(particleCount));
-		if (particlesLeft == 0)
-			addParticles = false;
+		float brushArea = 3.1415927410125732f * tUBO.toolSize * tUBO.toolSize;
+		float particleScale = (2.0f * tUBO.toolSize * distance + brushArea) / brushArea;
+		if (distance / static_cast<float>(dimensions) < 0.001f)
+			particleScale = 0.5f;
 
-		tUBO.particleCount = particlesLeft < 32 ? 0 : 32;
+		uint32_t maxAddedParticles = static_cast<uint32_t>(static_cast<float>(addParticleDensity) * particleScale);
+		addedParticleCount = particlesLeft < maxAddedParticles ? 0 : maxAddedParticles;
+
+		if (addedParticleCount == 0)
+			addParticles = false;
+		else
+			particleCount += addedParticleCount;
+
+		tUBO.particleCount = addedParticleCount;
 		tUBO.stepCount = stepCount;
 		tUBO.mass = 1;
 		tUBO.materialId = 0;
@@ -1901,10 +1918,9 @@ private:
 			if (addParticles)
 			{
 				addParticles = false;
-				particleCount += 64;
 
 				vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, registerparticlesComputePipeline);
-				vkCmdDispatch(commandBuffer, 1, 1, 1);
+				vkCmdDispatch(commandBuffer, ceilIntDivision(addedParticleCount, BIN_SIZE), 1, 1);
 				
 				vkCmdPipelineBarrier(commandBuffer,
 					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -2106,11 +2122,11 @@ private:
 		binBuffers.resize(MAX_FRAMES_IN_FLIGHT);
 		vBuffers.resize(2);
 
-		float pi = 3.14159265358979323846f;
-		float worldR = size * (dimensions / 2) * dx;
-		float volume = worldR * worldR * pi;
-		float totalMass = volume * 1000;
-		float mass = totalMass / MAX_PARTICLE_COUNT;
+		//float pi = 3.14159265358979323846f;
+		//float worldR = size * (dimensions / 2) * dx;
+		//float volume = worldR * worldR * pi;
+		//float totalMass = volume * 1000;
+		//float mass = totalMass / MAX_PARTICLE_COUNT;
 
 		//std::default_random_engine rndEngine((unsigned)time(nullptr));
 		std::default_random_engine rndEngine((unsigned)2u);
@@ -2864,8 +2880,24 @@ private:
 
 		return glm::vec2(
 			pos.x / static_cast<float>(height),
-			-pos.y / static_cast<float>(height)
+			pos.y / static_cast<float>(height)
 		);
+	}
+
+	glm::vec2 mousePosToCellspace(glm::vec2 mousePos)
+	{
+		int width, height;
+		glfwGetFramebufferSize(window, &width, &height);
+
+		glm::vec2 cellspaceRelativeMouse = screenspaceToCamspace(mousePos);
+		cellspaceRelativeMouse.y -= 0.5f;
+		cellspaceRelativeMouse.x -= (float)width / (float)height * 0.5f;
+		cellspaceRelativeMouse *= static_cast<float>(dimensions);
+		cellspaceRelativeMouse.y *= -1;
+
+		glm::vec2 cellspaceCamCenter = (cameraPos + 0.5f) * static_cast<float>(dimensions);
+
+		return cellspaceRelativeMouse + cellspaceCamCenter;
 	}
 };
 

@@ -12,7 +12,6 @@ struct Bin
 	float[BIN_SIZE] mass;
 	float[BIN_SIZE] hardening;
 	uint[BIN_SIZE] particleInBlock;
-	uint[BIN_SIZE] particleId;
 	uint[BIN_SIZE] materialId;
 	uint particleCount;
 };

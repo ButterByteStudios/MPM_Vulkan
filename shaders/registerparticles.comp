@@ -6,6 +6,7 @@
 layout(set = 1, binding = BIND_TUBO) uniform ToolUBO
 {
 	vec2 pos;
+    vec2 previousPos;
 	float toolSize;
 	uint toolShape;
 	uint particleCount;
@@ -57,7 +58,7 @@ void main()
     // Calculate particle positions uniformly and randomly in the brush
     vec2 random = hash22(uvec2(id, tubo.stepCount));
 
-    vec2 cellPosition = tubo.pos;
+    vec2 cellPosition = mix(tubo.previousPos, tubo.pos, float(id) / (float(tubo.particleCount) - 1.0));
 
     switch (tubo.toolShape)
     {
@@ -79,7 +80,6 @@ void main()
     bins[bIndex].mass[pIndex] = tubo.mass;
     bins[bIndex].hardening[pIndex] = 0; // make tool parameter probs
     bins[bIndex].particleInBlock[pIndex] = particleInBlock;
-    bins[bIndex].particleId[pIndex] = 0; // Revise graphics scatter
     bins[bIndex].materialId[pIndex] = tubo.materialId;
 
     if (pIndex == 0)
