@@ -37,7 +37,7 @@ const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 800;
 const uint32_t MAX_MATERIAL_COUNT = 10;
 const uint32_t MAX_FRAMES_IN_FLIGHT = 2;
-const uint32_t MAX_PARTICLE_COUNT = 1 << 19;
+const uint32_t MAX_PARTICLE_COUNT = 1 << 20;
 const uint32_t BIN_KERNEL_SIZE = 1;
 const uint32_t GRID_KERNEL_SIZE = 32;
 const uint32_t BLOCK_KERNEL_SIZE = 16;
@@ -302,7 +302,7 @@ private:
 	std::vector<val::AllocatedBuffer> cameraBuffers;
 	std::vector<val::AllocatedBuffer> toolBuffers;
 
-	uint32_t dimensions = 256;
+	uint32_t dimensions = 1 << 8;
 	uint32_t nodeCount = dimensions * dimensions;
 	uint32_t gridBlockDimensions = dimensions / 4;
 	uint32_t particleBlockDimensions = gridBlockDimensions - 1;
@@ -672,8 +672,8 @@ private:
 	{
 		ImGuiIO& io = ImGui::GetIO();
 		mousePos = glm::vec2((float)mouseInput.posX, (float)mouseInput.posY);
-		lastCellspaceMousePos = mousePosToCellspace(lastMousePos) / zoom;
-		cellspaceMousePos = mousePosToCellspace(mousePos) / zoom;
+		lastCellspaceMousePos = mousePosToCellspace(lastMousePos);
+		cellspaceMousePos = mousePosToCellspace(mousePos);
 
 		if (!io.WantCaptureMouse)
 		{
@@ -2894,6 +2894,8 @@ private:
 		cellspaceRelativeMouse.x -= (float)width / (float)height * 0.5f;
 		cellspaceRelativeMouse *= static_cast<float>(dimensions);
 		cellspaceRelativeMouse.y *= -1;
+
+		cellspaceRelativeMouse /= zoom;
 
 		glm::vec2 cellspaceCamCenter = (cameraPos + 0.5f) * static_cast<float>(dimensions);
 

@@ -35,33 +35,27 @@ void main()
 		return;
 	}
 
-	mat2 F = binsIn[bIndex].F[currentPIndex];
 	vec2 cellPos = binsIn[bIndex].position[currentPIndex];
-	float m = binsIn[bIndex].mass[currentPIndex];
-	float hardening = binsIn[bIndex].hardening[currentPIndex];
-	uint mId = binsIn[bIndex].materialId[currentPIndex];
-	uint particleInBlock = binsIn[bIndex].particleInBlock[currentPIndex];
 
 	// Find block index from pos = (floor(cellpos + 0.5) - 2) / 4
 	ivec2 blockCoords = ivec2(cellPos - 1.5) >> LOG2_G; // Divide by 4
 	uint block = blockIndex(blockCoords.x, blockCoords.y);
 
-	uint binInBlock = particleInBlock >> LOG2_BIN_SIZE;
-	uint firstParticleInBin = binInBlock << LOG2_BIN_SIZE;
+	uint particleInBlock = binsIn[bIndex].particleInBlock[currentPIndex];
 	uint nextPIndex = particleInBlock & BIN_MASK;
 	uint nextBaseBin = binOffsets[block];
+	uint binInBlock = particleInBlock >> LOG2_BIN_SIZE;
 	uint nextBIndex = nextBaseBin + binInBlock;
 
-	binsOut[nextBIndex].F[nextPIndex] = F;
+	binsOut[nextBIndex].F[nextPIndex] = binsIn[bIndex].F[currentPIndex];
 	binsOut[nextBIndex].position[nextPIndex] = cellPos;
-	binsOut[nextBIndex].mass[nextPIndex] = m;
-	binsOut[nextBIndex].hardening[nextPIndex] = hardening;
-	binsOut[nextBIndex].materialId[nextPIndex] = mId;
+	binsOut[nextBIndex].mass[nextPIndex] = binsIn[bIndex].mass[currentPIndex];
+	binsOut[nextBIndex].hardening[nextPIndex] = binsIn[bIndex].hardening[currentPIndex];
+	binsOut[nextBIndex].materialId[nextPIndex] = binsIn[bIndex].materialId[currentPIndex];;
 
 	if (nextPIndex == 0)
 	{
-		uint blockParticleCount = histogram[block];
-		uint particlesLeft = min(blockParticleCount - firstParticleInBin, BIN_SIZE);
-		binsOut[nextBIndex].particleCount = particlesLeft;
+		// Use the total particles in the block and the current particle
+		binsOut[nextBIndex].particleCount = min(histogram[block] - (binInBlock << LOG2_BIN_SIZE), BIN_SIZE);
 	}
 }

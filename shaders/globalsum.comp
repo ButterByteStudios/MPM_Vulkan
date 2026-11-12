@@ -19,7 +19,6 @@ shared uint binSum;
 
 void main()
 {
-	uint globalId = gl_GlobalInvocationID.x;
 	uint localId = gl_LocalInvocationID.x;
 	uint block = gl_WorkGroupID.x;
 

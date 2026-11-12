@@ -53,8 +53,8 @@ float qw0(float x)
 
 float qw1(float x)
 {
-	float xp = x - 1.0;
-	return 0.75 - xp * xp;
+    float xp = x - 1.0;
+    return fma(-xp, xp, 0.75);
 }
 
 float qw2(float x)
@@ -145,6 +145,9 @@ void main()
 	shVWGrid[localSubblockIndex] = vec2(0);
 	shMGrid[localSubblockIndex] = 0;
 
+	float invD = 4.0 * invDx * invDx;
+	float dtInvD = dt * invD;
+
 	barrier();
 	
 	for (uint binInBlock = 0; binInBlock < binCount; binInBlock++)
@@ -163,12 +166,12 @@ void main()
 			vec2 d = coords - cellPosition;
 
 			float dx0 = d.x * dx;
-			float dx1 = (1 + d.x) * dx;
-			float dx2 = (2 + d.x) * dx;
+			float dx1 = dx0 + dx;
+			float dx2 = dx1 + dx;
 
 			float dy0 = d.y * dx;
-			float dy1 = (1 + d.y) * dx;
-			float dy2 = (2 + d.y) * dx;
+			float dy1 = dy0 + dx;
+			float dy2 = dy1 + dx;
 
 			float uw0 = qw0(-d.x);
 			float uw1 = qw1(-d.x);
@@ -203,48 +206,12 @@ void main()
 				dy1 * (v01 + v11 + v21) +
 				dy2 * (v02 + v12 + v22);
 
-			float inv_D = 4.0 * invDx * invDx;
-			mat2 C = B * inv_D;
-
-			mat2 F = (mat2(1.0) + C * dt) * bins[binIndex].F[pIndex];
+			mat2 F = (mat2(1.0) + B * dtInvD) * bins[binIndex].F[pIndex];
 
 			// 2 outer node halos are off limits so particles stay in particle block territory
 			cellPosition = clamp(cellPosition + dt * v * invDx, 2, dimensions - 2);
 
 			bins[binIndex].position[pIndex] = cellPosition;
-
-			coords = ivec2(cellPosition - 0.5);
-			coordsInBlock = coords - gridBlockCellCoords;
-
-			d = coords - cellPosition;
-
-			dx0 = d.x * dx;
-			dx1 = (1 + d.x) * dx;
-			dx2 = (2 + d.x) * dx;
-
-			dy0 = d.y * dx;
-			dy1 = (1 + d.y) * dx;
-			dy2 = (2 + d.y) * dx;
-			
-			uw0 = qw0(-d.x);
-			uw1 = qw1(-d.x);
-			uw2 = qw2(-d.x);
-
-			vw0 = qw0(-d.y);
-			vw1 = qw1(-d.y);
-			vw2 = qw2(-d.y);
-
-			float w00 = uw0 * vw0;
-			float w10 = uw1 * vw0;
-			float w20 = uw2 * vw0;
-
-			float w01 = uw0 * vw1;
-			float w11 = uw1 * vw1;
-			float w21 = uw2 * vw1;
-
-			float w02 = uw0 * vw2;
-			float w12 = uw1 * vw2;
-			float w22 = uw2 * vw2;
 
 			uint materialId = bins[binIndex].materialId[pIndex];
 			float rho = mats[materialId].params[I_RHO];
@@ -268,10 +235,42 @@ void main()
 
 			bins[binIndex].F[pIndex] = F;
 
+			coords = ivec2(cellPosition - 0.5);
+			coordsInBlock = coords - gridBlockCellCoords;
+
+			d = coords - cellPosition;
+
+			dx0 = d.x * dx;
+			dx1 = dx0 + dx;
+			dx2 = dx1 + dx;
+
+			dy0 = d.y * dx;
+			dy1 = dy0 + dx;
+			dy2 = dy1 + dx;
+			
+			uw0 = qw0(-d.x);
+			uw1 = qw1(-d.x);
+			uw2 = qw2(-d.x);
+
+			vw0 = qw0(-d.y);
+			vw1 = qw1(-d.y);
+			vw2 = qw2(-d.y);
+
+			float w00 = uw0 * vw0;
+			float w10 = uw1 * vw0;
+			float w20 = uw2 * vw0;
+
+			float w01 = uw0 * vw1;
+			float w11 = uw1 * vw1;
+			float w21 = uw2 * vw1;
+
+			float w02 = uw0 * vw2;
+			float w12 = uw1 * vw2;
+			float w22 = uw2 * vw2;
+
 			float volume = mass / rho;
 			
-			mat2 stress = dt * -volume * kirchoff * inv_D;
-			mat2 affine = stress + mass * C;
+			mat2 affine = (mass * B - dt * volume * kirchoff) * invD;
 
 			vec2 vm = v * mass;
 
@@ -295,13 +294,13 @@ void main()
 			vec2 vm12 = w12 * (ax1 + ay2);
 			vec2 vm22 = w22 * (ax2 + ay2);
 
-			uint i00 = gridSubblockBlockIndex(coordsInBlock.x, coordsInBlock.y);
-
 			int sx0 = gridStepX(coordsInBlock.x);
 			int sx1 = gridStepX(coordsInBlock.x + 1u);
 
 			int sy0 = gridStepY(coordsInBlock.y);
 			int sy1 = gridStepY(coordsInBlock.y + 1u);
+
+			uint i00 = gridSubblockBlockIndex(coordsInBlock.x, coordsInBlock.y);
 
 			uint i10 = uint(int(i00) + sx0);
 			uint i20 = uint(int(i10) + sx1);
