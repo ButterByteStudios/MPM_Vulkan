@@ -23,13 +23,16 @@ layout(set = 0, std430, binding = BIND_SID) writeonly buffer ScatterIndirectOut
 	uint instanceCount;
 	uint firstVertex;
 	uint firstInstance;
+	
+    uint totalBins;
 };
 
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
 void main()
 {
-	uint totalBins = blockBinOffsets[pubo.blocks - 1] + blockBinCount[pubo.blocks - 1];
-    scatterX = totalBins;
-	vertexCount = totalBins * BIN_SIZE;
+	uint newTotalBins = blockBinOffsets[pubo.blocks - 1] + blockBinCount[pubo.blocks - 1];
+    scatterX = newTotalBins;
+	totalBins = newTotalBins;
+	vertexCount = newTotalBins * BIN_SIZE;
 }

@@ -1,5 +1,6 @@
 #version 450
 
+#extension GL_EXT_shader_atomic_float: enable
 #extension GL_ARB_shading_language_include: enable
 #include "global.glsl"
 
@@ -25,6 +26,11 @@ layout(set = 2, std430, binding = BIND_BR) writeonly buffer BinSSBOOut
 	Bin bins[];
 };
 
+layout(set = 0, std430, binding = BIND_M) writeonly buffer GridMassSSBOOut
+{
+	float mGrid[];
+};
+
 layout(set = 0, std430, binding = BIND_SID) buffer ScatterIndirectIn
 {
 	uint scatterX;
@@ -35,13 +41,15 @@ layout(set = 0, std430, binding = BIND_SID) buffer ScatterIndirectIn
     uint instanceCount;
     uint firstVertex;
     uint firstInstance;
+
+    uint totalBins;
 };
 
 layout(local_size_x = BIN_SIZE, local_size_y = 1, local_size_z = 1) in;
 
 void main()
 {
-    uint bIndex = scatterX + gl_WorkGroupID.x;
+    uint bIndex = totalBins + gl_WorkGroupID.x;
     uint pIndex = gl_LocalInvocationID.x;
     int particleCount = min(int(tubo.particleCount) - int(gl_WorkGroupID.x) * int(BIN_SIZE), int(BIN_SIZE));
 
@@ -69,8 +77,29 @@ void main()
             break;
     }
     
-    ivec2 blockCoords = ivec2(cellPosition - 1.5) >> LOG2_G; // Divide by 4
+    
+    uvec2 coords = uvec2(cellPosition - 0.5);
+    uvec2 blockCoords = (coords - 1u) >> LOG2_G; // Divide by 4
     uint block = blockIndex(blockCoords.x, blockCoords.y);
+
+    vec2 d = coords - cellPosition;
+
+	vec3 wu = qw(d.x);
+	vec3 wv = qw(d.y);
+
+	mat3 w = outerProduct(wv, wu);
+
+    atomicAdd(mGrid[partialMorton(coords.x + 0, coords.y + 0)], tubo.mass * w[0][0]);
+	atomicAdd(mGrid[partialMorton(coords.x + 1, coords.y + 0)], tubo.mass * w[1][0]);
+	atomicAdd(mGrid[partialMorton(coords.x + 2, coords.y + 0)], tubo.mass * w[2][0]);
+
+	atomicAdd(mGrid[partialMorton(coords.x + 0, coords.y + 1)], tubo.mass * w[0][1]);
+	atomicAdd(mGrid[partialMorton(coords.x + 1, coords.y + 1)], tubo.mass * w[1][1]);
+	atomicAdd(mGrid[partialMorton(coords.x + 2, coords.y + 1)], tubo.mass * w[2][1]);
+
+	atomicAdd(mGrid[partialMorton(coords.x + 0, coords.y + 2)], tubo.mass * w[0][2]);
+	atomicAdd(mGrid[partialMorton(coords.x + 1, coords.y + 2)], tubo.mass * w[1][2]);
+	atomicAdd(mGrid[partialMorton(coords.x + 2, coords.y + 2)], tubo.mass * w[2][2]);
 
     uint particleInBlock = atomicAdd(histogram[blockIndex(blockCoords.x, blockCoords.y)], 1);
 

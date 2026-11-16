@@ -100,6 +100,7 @@ namespace uil
 
             ImGui::Text("Material Type");
             ImGui::SameLine();
+            
             if (ImGui::BeginCombo("##Material Type", typeNames[selectedIndex].c_str()))
             {
                 for (size_t i = 0; i < typeNames.size(); i++)

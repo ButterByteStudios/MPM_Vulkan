@@ -191,20 +191,20 @@ void nadpProject(
     }
 
     // Case 1: Project to max tip of the YS (avoided with pressure clamp)
-    //if (s_target <= 0.0)
-    //{
-    //    float p_apex = -c_c / (2.0 * c_f);
-    //    float Je_apex = sqrt(1.0 - 2.0 * p_apex / k);
-    //
-    //    vec2 sigma_new = vec2(sqrt(Je_apex));
-    //    Fe_trial = U * mat2(
-    //        sigma_new[0], 0.0,
-    //        0.0, sigma_new[1]
-    //    ) * transpose(V);
-    //
-    //    tau = -p_apex * mat2(1.0);
-    //    return;
-    //}
+    if (p_tr <= 0.0)
+    {
+        float p_apex = -c_c / (2.0 * c_f);
+        float Je_apex = sqrt(1.0 - 2.0 * p_apex / k);
+    
+        vec2 sigma_new = vec2(sqrt(Je_apex));
+        Fe_trial = U * mat2(
+            sigma_new[0], 0.0,
+            0.0, sigma_new[1]
+        ) * transpose(V);
+    
+        tau = -p_apex * mat2(1.0);
+        return;
+    }
 
     // Non associated shear correction (with volume preservation)
     float d_new = Je_tr * s_target / (sqrt(2.0) * mu);
@@ -228,4 +228,69 @@ void nadpProject(
     );
 
     tau = U * tau_principal * transpose(U);
+}
+
+void druckerPrager(
+    inout mat2 Fe_trial,
+    float lambda,
+    float mu,
+    float h_0,
+    float h_1,
+    float h_2,
+    float h_3,
+    inout float alpha,
+    out mat2 tau)
+{
+    mat2 I = mat2(1.0);
+
+	mat2 U, V;
+    vec2 sigma;
+
+    svd(Fe_trial, U, sigma, V);
+
+    vec2 eps = log(sigma);
+    float eps_trace = eps[0] + eps[1];
+    vec2 eps_dev = eps_trace * -0.5 + eps;
+    float eps_dev_norm = length(eps_dev);
+
+    float friction_angle = fma((fma(h_1, alpha, -h_3)), exp(-h_2 * alpha), h_0);
+    float hardening = sqrt(2.0 / 3.0) * (2.0 * sin(friction_angle) / (3.0 - sin(friction_angle)));
+
+    // Plastic deformation
+    float yield = eps_dev_norm + (lambda / mu + 1) * eps_trace * hardening;
+
+    // No plastic deformation, so inside of the yield surface
+    if (yield <= 0.0)
+    {
+        // Delta alpha = 0
+        // In the yield surface, so no Fe projection needed
+        vec2 tau_principle = 2.0 * mu * eps + lambda * eps_trace;
+        tau = U * mat2(tau_principle[0], 0, 0, tau_principle[1]) * transpose(U);
+        return;
+    }
+
+
+    // If only strain stress, project to the tip
+    if (eps_trace > 0 && eps_dev_norm == 0)
+    {
+        // Assume no tensile strength
+        Fe_trial = U * transpose(V);
+
+        // Delta alpha = length(eps)
+        alpha += length(eps);
+
+        tau = mat2(0.0);
+        return;
+    }
+
+    vec2 H = eps - yield * eps_dev / eps_dev_norm;
+    vec2 sigma_new = exp(H);
+
+
+    alpha += yield;
+    Fe_trial = U * mat2(sigma_new[0], 0, 0, sigma_new[1]) * transpose(V);
+
+    float H_trace = H[0] + H[1];
+    vec2 tau_principle = 2.0 * mu * H + lambda * H_trace;
+    tau = U * mat2(tau_principle[0], 0, 0, tau_principle[1]) * transpose(U);
 }

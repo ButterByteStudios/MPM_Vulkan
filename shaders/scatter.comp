@@ -43,15 +43,14 @@ void main()
 
 	uint particleInBlock = binsIn[bIndex].particleInBlock[currentPIndex];
 	uint nextPIndex = particleInBlock & BIN_MASK;
-	uint nextBaseBin = binOffsets[block];
 	uint binInBlock = particleInBlock >> LOG2_BIN_SIZE;
-	uint nextBIndex = nextBaseBin + binInBlock;
+	uint nextBIndex = binOffsets[block] + binInBlock;
 
 	binsOut[nextBIndex].F[nextPIndex] = binsIn[bIndex].F[currentPIndex];
 	binsOut[nextBIndex].position[nextPIndex] = cellPos;
 	binsOut[nextBIndex].mass[nextPIndex] = binsIn[bIndex].mass[currentPIndex];
 	binsOut[nextBIndex].hardening[nextPIndex] = binsIn[bIndex].hardening[currentPIndex];
-	binsOut[nextBIndex].materialId[nextPIndex] = binsIn[bIndex].materialId[currentPIndex];;
+	binsOut[nextBIndex].materialId[nextPIndex] = binsIn[bIndex].materialId[currentPIndex];
 
 	if (nextPIndex == 0)
 	{

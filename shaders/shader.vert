@@ -62,7 +62,7 @@ void main()
 	}
 	else
 	{
-		gl_PointSize = 2.0;
+		gl_PointSize = 4.0;
 		// Map position from 0-dimensions to 0-2
 		vec2 pos = binsIn[bin].position[particleInBin] / pubo.dimensions - 0.5;
 		vec2 relative = pos - cam.pos;

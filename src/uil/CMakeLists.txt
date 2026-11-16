@@ -3,7 +3,10 @@ add_library(uil STATIC
 	"src/UI/MaterialsMenu.cpp"
 	"src/Materials/MaterialsManager.cpp" 
 	"src/UI/ToolsMenu.cpp"
-	"src/Tools/ToolsManager.cpp" "src/Tools/Tool.cpp")
+	"src/Tools/ToolsManager.cpp"
+	
+	"src/Tools/BrushTool.cpp"
+ "include/uil/Tool.h")
 
 target_include_directories(uil
 	PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include

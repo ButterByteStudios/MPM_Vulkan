@@ -38,7 +38,6 @@ const uint32_t HEIGHT = 800;
 const uint32_t MAX_MATERIAL_COUNT = 10;
 const uint32_t MAX_FRAMES_IN_FLIGHT = 2;
 const uint32_t MAX_PARTICLE_COUNT = 1 << 20;
-const uint32_t BIN_KERNEL_SIZE = 1;
 const uint32_t GRID_KERNEL_SIZE = 32;
 const uint32_t BLOCK_KERNEL_SIZE = 16;
 const uint32_t SUM_KERNEL_SIZE = 256;
@@ -113,6 +112,8 @@ struct IndirectDispatchData
 	uint32_t instanceCount;
 	uint32_t firstVertex;
 	uint32_t firstInstance;
+
+	uint32_t totalBins;
 };
 
 // WATCH FOR ALIGNMENT ISSUES. 
@@ -302,7 +303,7 @@ private:
 	std::vector<val::AllocatedBuffer> cameraBuffers;
 	std::vector<val::AllocatedBuffer> toolBuffers;
 
-	uint32_t dimensions = 1 << 8;
+	uint32_t dimensions = 1 << 7;
 	uint32_t nodeCount = dimensions * dimensions;
 	uint32_t gridBlockDimensions = dimensions / 4;
 	uint32_t particleBlockDimensions = gridBlockDimensions - 1;
@@ -323,11 +324,9 @@ private:
 	float sensitivity = 1.0f;
 	float scrollSensitivity = 0.05f;
 
-	int defaultMaterial = 2;
-	float hardening = -0.01;
 	float dx = 2.0f / dimensions;
 	float dt = 0.00001f;
-	uint32_t substeps = 15;
+	uint32_t substeps = 30;
 	glm::vec2 cameraPos = glm::vec2(0.0);
 	float zoom = 1;
 	glm::vec2 accel = glm::vec2(0);
@@ -335,7 +334,7 @@ private:
 	// Add tool demo
 	bool addParticles = false;
 	uint32_t particleCount = 0;
-	uint32_t addParticleDensity = 32;
+	uint32_t addParticleDensity = 64;
 	uint32_t addedParticleCount = 0;
 
 	void mainLoop()
@@ -567,16 +566,19 @@ private:
 			uil::InputData("Density", uil::InputData::InputType::INPUT_FLOAT, 1.0f, 100.0f, 1000.0f, 0, "Density in kg/m^2"),
 			uil::InputData("E", uil::InputData::InputType::INPUT_FLOAT, 1.0f, 100.0f, 10000000.0f, 0, "Young's modulus: Stiffness of material"),
 			uil::InputData("v", uil::InputData::InputType::SLIDER_FLOAT, 0.0f, 0.49f, 0.4f, 0, "Poisson ratio: Incompressability of material"),
-			uil::InputData("c_f", uil::InputData::InputType::SLIDER_FLOAT, 0.0f, 2.0f, 0.4f, 0, "friction coefficient"),
-			uil::InputData("c_c", uil::InputData::InputType::SLIDER_FLOAT, 0.0f, 100000.0f, 1.0f, 0, "cohesion coefficient")
+			uil::InputData("Hardened friction angle", uil::InputData::InputType::SLIDER_FLOAT, 0.0f, 90.0f, 20.0f, 0, "Friction angle after fully hardening"),
+			uil::InputData("hardening strength", uil::InputData::InputType::SLIDER_FLOAT, 0.0f, 2.0f, 0.4f, 0, "How much hardening affects the friction angle"),
+			uil::InputData("hardening rate", uil::InputData::InputType::SLIDER_FLOAT, 0.0f, 2.0f, 0.4f, 0, "How fast hardening changes with plastic deformation"),
+			uil::InputData("Initial friction angle", uil::InputData::InputType::SLIDER_FLOAT, 0.0f, 90.0f, 20.0f, 0, "Initial friction angle without hardening"),
 		};
 		std::vector<uil::Conversion> nadpConversions{
 			[](const uil::Parameters& p) { return p[0]; }, // rho
-			[](const uil::Parameters& p) { return p[1] / (3.0 - 6.0 * p[2]); }, // E and v to k
+			[](const uil::Parameters& p) { return p[1] * p[2] / ((1 + p[2]) * (1 - 2 * p[2])); }, // E and v to lambda
 			[](const uil::Parameters& p) { return p[1] / (2.0 + 2.0 * p[2]); }, // E and v to mu
-			[](const uil::Parameters& p) { return p[3]; }, // c_f
-			[](const uil::Parameters& p) { return p[4]; }, // c_c
-			[](const uil::Parameters& p) { return p[5]; }, // xi
+			[](const uil::Parameters& p) { return glm::radians(p[3]); }, // h_0
+			[](const uil::Parameters& p) { return glm::radians(p[4]); }, // h_1
+			[](const uil::Parameters& p) { return glm::radians(p[5]); }, // h_2
+			[](const uil::Parameters& p) { return glm::radians(p[3] - p[6]); }, // h_3
 		};
 		materialsManager->addMaterialType("nadp plasticity", nadpInputs, nadpConversions);
 						
@@ -824,27 +826,33 @@ private:
 		memcpy(cameraBuffers[currentImage].mapped, &cUBO, sizeof(cUBO));
 
 		ToolUBO tUBO{};
-		tUBO.toolSize = 4.0f;
+		tUBO.toolSize = 2.0f;
 
 		glm::vec2 pos = glm::clamp(cellspaceMousePos, 4.0f + tUBO.toolSize, static_cast<float>(dimensions) - 4.0f - tUBO.toolSize);
 		glm::vec2 previousPos = glm::clamp(lastCellspaceMousePos, 4.0f + tUBO.toolSize, static_cast<float>(dimensions) - 4.0f - tUBO.toolSize);
+
+		if (pos != cellspaceMousePos || previousPos != lastCellspaceMousePos)
+			addParticles = false;
+
 		float distance = glm::length(pos - previousPos);
 
 		tUBO.pos = pos;
 		tUBO.previousPos = previousPos;
 		tUBO.toolShape = 0;
 		int particlesLeft = static_cast<int>(MAX_PARTICLE_COUNT) - (static_cast<int>(particleCount));
-		float brushArea = 3.1415927410125732f * tUBO.toolSize * tUBO.toolSize;
-		float particleScale = (2.0f * tUBO.toolSize * distance + brushArea) / brushArea;
-		if (distance / static_cast<float>(dimensions) < 0.001f)
-			particleScale = 0.5f;
+		float brushArea = tUBO.toolSize * tUBO.toolSize;
+		float diameter = 2.0f * tUBO.toolSize;
+		float rectangleArea = diameter * distance;
+		float particleScale = (rectangleArea) / brushArea;
+		//if (distance / static_cast<float>(dimensions) < 0.00001f)
+		//	particleScale = 0.2f;
 
 		uint32_t maxAddedParticles = static_cast<uint32_t>(static_cast<float>(addParticleDensity) * particleScale);
 		addedParticleCount = particlesLeft < maxAddedParticles ? 0 : maxAddedParticles;
 
 		if (addedParticleCount == 0)
 			addParticles = false;
-		else
+		else if (addParticles)
 			particleCount += addedParticleCount;
 
 		tUBO.particleCount = addedParticleCount;
@@ -2326,13 +2334,14 @@ private:
 		// Indirect dispatches
 		bufferSize = sizeof(IndirectDispatchData);
 		IndirectDispatchData indirectDispatchData{};
-		indirectDispatchData.dispatchX = ceilIntDivision(totalUsedBins, BIN_KERNEL_SIZE);
+		indirectDispatchData.dispatchX = totalUsedBins;
 		indirectDispatchData.dispatchY = 1;
 		indirectDispatchData.dispatchZ = 1;
 		indirectDispatchData.vertexCount = totalUsedBins * BIN_SIZE;
 		indirectDispatchData.instanceCount = 1;
 		indirectDispatchData.firstVertex = 0;
 		indirectDispatchData.firstInstance = 0;
+		indirectDispatchData.totalBins = totalUsedBins;
 
 		stagingBuffer = createStagingBuffer(bufferSize);
 		memcpy(stagingBuffer.mapped, &indirectDispatchData, (size_t)bufferSize);

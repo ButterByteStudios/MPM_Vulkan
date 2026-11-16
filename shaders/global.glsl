@@ -39,12 +39,15 @@
 #define I_MU (2)
 
 #define I_BETA (3)
-#define I_CF (3)
+#define I_H0 (3)
 
 #define I_M (4)
-#define I_CC (4)
+#define I_H1 (4)
 
 #define I_XI (5)
+#define I_H2 (5)
+
+#define I_H3 (6)
 
 
 #define CIRCLE (0)
@@ -61,15 +64,9 @@ struct Bin
 	uint particleCount;
 };
 
-struct Particle
-{
-	vec4 color;
-	vec2 position;
-};
-
 struct Material
 {
-	float[6] params;
+	float[8] params;
 	int materialType;
 };
 
@@ -127,7 +124,7 @@ vec2 hash22(uvec2 q)
 vec3 hash32(uvec2 q)
 {
 	uvec3 n = q.xyx * uvec3(1597334673U, 3812015801U, 2798796415U);
-	n = (n.x ^ n.y ^n.z) * uvec3(1597334673U, 3812015801U, 2798796415U);
+	n = (n.x ^ n.y ^ n.z) * uvec3(1597334673U, 3812015801U, 2798796415U);
 	return vec3(n) * 2.328306437080797e-10;
 }
 
@@ -138,4 +135,35 @@ vec2 circleDistribution(vec2 random, float radius)
     float r = radius * sqrt(random.x);
 	float angle = random.y * pi2;
     return vec2(cos(angle), sin(angle)) * r;
+}
+
+vec3 qw(float x)
+{
+    float a = x + 1.5;
+    float b = x + 1.0;
+    float c = x + 0.5;
+
+    return vec3(
+        0.5 * a * a,
+        fma(-b, b, 0.75),
+        0.5 * c * c
+    );
+}
+
+vec2 qw0(vec2 x)
+{
+	vec2 xp = 1.5 + x;
+	return 0.5 * xp * xp;
+}
+
+vec2 qw1(vec2 x)
+{
+    vec2 xp = x + 1.0;
+    return fma(-xp, xp, vec2(0.75));
+}
+
+vec2 qw2(vec2 x)
+{
+	vec2 xp = x + 0.5;
+	return 0.5 * xp * xp;
 }

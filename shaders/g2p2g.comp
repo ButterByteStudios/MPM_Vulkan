@@ -45,24 +45,6 @@ layout(set = 2, std430, binding = BIND_BR) buffer BinSSBOInOut
 	Bin bins[];
 };
 
-float qw0(float x)
-{
-	float xp = 1.5 - x;
-	return 0.5 * xp * xp;
-}
-
-float qw1(float x)
-{
-    float xp = x - 1.0;
-    return fma(-xp, xp, 0.75);
-}
-
-float qw2(float x)
-{
-	float xp = x - 0.5;
-	return 0.5 * xp * xp;
-}
-
 #define G2 (G * G)
 #define GBlockDimensions (G + 2 + 2)
 #define GBlock (GBlockDimensions * GBlockDimensions)
@@ -166,32 +148,29 @@ void main()
 			vec2 d = coords - cellPosition;
 
 			float dx0 = d.x * dx;
-			float dx1 = dx0 + dx;
-			float dx2 = dx1 + dx;
+			float dx1 = fma(d.x, dx, dx);
+			float dx2 = fma(d.x, dx, dx + dx);
 
 			float dy0 = d.y * dx;
-			float dy1 = dy0 + dx;
-			float dy2 = dy1 + dx;
+			float dy1 = fma(d.y, dx, dx);
+			float dy2 = fma(d.y, dx, dx + dx);
 
-			float uw0 = qw0(-d.x);
-			float uw1 = qw1(-d.x);
-			float uw2 = qw2(-d.x);
+			vec3 wu = qw(d.x);
+			vec3 wv = qw(d.y);
 
-			float vw0 = qw0(-d.y);
-			float vw1 = qw1(-d.y);
-			float vw2 = qw2(-d.y);
+			mat3 w = outerProduct(wv, wu);
 
-			vec2 v00 = uw0 * vw0 * shVRGrid[gridSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0)];
-			vec2 v10 = uw1 * vw0 * shVRGrid[gridSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 0)];
-			vec2 v20 = uw2 * vw0 * shVRGrid[gridSubblockBlockIndex(coordsInBlock.x + 2, coordsInBlock.y + 0)];
+			vec2 v00 = w[0][0] * shVRGrid[gridSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 0)];
+			vec2 v10 = w[1][0] * shVRGrid[gridSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 0)];
+			vec2 v20 = w[2][0] * shVRGrid[gridSubblockBlockIndex(coordsInBlock.x + 2, coordsInBlock.y + 0)];
 
-			vec2 v01 = uw0 * vw1 * shVRGrid[gridSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 1)];
-			vec2 v11 = uw1 * vw1 * shVRGrid[gridSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 1)];
-			vec2 v21 = uw2 * vw1 * shVRGrid[gridSubblockBlockIndex(coordsInBlock.x + 2, coordsInBlock.y + 1)];
+			vec2 v01 = w[0][1] * shVRGrid[gridSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 1)];
+			vec2 v11 = w[1][1] * shVRGrid[gridSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 1)];
+			vec2 v21 = w[2][1] * shVRGrid[gridSubblockBlockIndex(coordsInBlock.x + 2, coordsInBlock.y + 1)];
 
-			vec2 v02 = uw0 * vw2 * shVRGrid[gridSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 2)];
-			vec2 v12 = uw1 * vw2 * shVRGrid[gridSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 2)];
-			vec2 v22 = uw2 * vw2 * shVRGrid[gridSubblockBlockIndex(coordsInBlock.x + 2, coordsInBlock.y + 2)];
+			vec2 v02 = w[0][2] * shVRGrid[gridSubblockBlockIndex(coordsInBlock.x + 0, coordsInBlock.y + 2)];
+			vec2 v12 = w[1][2] * shVRGrid[gridSubblockBlockIndex(coordsInBlock.x + 1, coordsInBlock.y + 2)];
+			vec2 v22 = w[2][2] * shVRGrid[gridSubblockBlockIndex(coordsInBlock.x + 2, coordsInBlock.y + 2)];
 
 			vec2 v = v00 + v10 + v20 + 
 					v01 + v11 + v21 + 
@@ -217,6 +196,7 @@ void main()
 			float rho = mats[materialId].params[I_RHO];
 
 			mat2 kirchoff;
+			float alpha;
 			
 			switch (mats[materialId].materialType) 
 			{
@@ -224,12 +204,16 @@ void main()
 					kirchoff = neohookeanKirchoff(F, mats[materialId].params[I_LAMBDA], mats[materialId].params[I_MU]);
 					break;
 				case NACC:
-					float alpha = bins[binIndex].hardening[pIndex];
+					alpha = bins[binIndex].hardening[pIndex];
 					naccProject(F, mats[materialId].params[I_K], mats[materialId].params[I_MU], mats[materialId].params[I_BETA], mats[materialId].params[I_M], mats[materialId].params[I_XI], alpha, kirchoff);
 					bins[binIndex].hardening[pIndex] = alpha;
 					break;
 				case NADP:
-					nadpProject(F, mats[materialId].params[I_K], mats[materialId].params[I_MU], mats[materialId].params[I_CF], mats[materialId].params[I_CC], kirchoff);
+// h_0 > h_3 >= 0
+// h_1, h_2 >= 0
+					alpha = bins[binIndex].hardening[pIndex];
+					druckerPrager(F, mats[materialId].params[I_LAMBDA], mats[materialId].params[I_MU], mats[materialId].params[I_H0], mats[materialId].params[I_H1], mats[materialId].params[I_H2], mats[materialId].params[I_H3], alpha, kirchoff);
+					bins[binIndex].hardening[pIndex] = alpha;
 					break;
 			}
 
@@ -240,33 +224,18 @@ void main()
 
 			d = coords - cellPosition;
 
-			dx0 = d.x * dx;
-			dx1 = dx0 + dx;
-			dx2 = dx1 + dx;
+			dx0 = dx0 = d.x * dx;
+			dx1 = dx1 = fma(d.x, dx, dx);
+			dx2 = dx2 = fma(d.x, dx, dx + dx);
 
-			dy0 = d.y * dx;
-			dy1 = dy0 + dx;
-			dy2 = dy1 + dx;
+			dy0 = dy0 = d.y * dx;
+			dy1 = dy1 = fma(d.y, dx, dx);
+			dy2 = dy2 = fma(d.y, dx, dx + dx);
 			
-			uw0 = qw0(-d.x);
-			uw1 = qw1(-d.x);
-			uw2 = qw2(-d.x);
+			wu = qw(d.x);
+			wv = qw(d.y);
 
-			vw0 = qw0(-d.y);
-			vw1 = qw1(-d.y);
-			vw2 = qw2(-d.y);
-
-			float w00 = uw0 * vw0;
-			float w10 = uw1 * vw0;
-			float w20 = uw2 * vw0;
-
-			float w01 = uw0 * vw1;
-			float w11 = uw1 * vw1;
-			float w21 = uw2 * vw1;
-
-			float w02 = uw0 * vw2;
-			float w12 = uw1 * vw2;
-			float w22 = uw2 * vw2;
+			w = outerProduct(wv, wu);
 
 			float volume = mass / rho;
 			
@@ -282,17 +251,17 @@ void main()
 			vec2 ay1 = affine[1] * dy1;
 			vec2 ay2 = affine[1] * dy2;
 
-			vec2 vm00 = w00 * (ax0 + ay0);
-			vec2 vm10 = w10 * (ax1 + ay0);
-			vec2 vm20 = w20 * (ax2 + ay0);	
+			vec3 vm00 = w[0][0] * vec3((ax0 + ay0), mass);
+			vec3 vm10 = w[1][0] * vec3((ax1 + ay0), mass);
+			vec3 vm20 = w[2][0] * vec3((ax2 + ay0), mass);	
 			
-			vec2 vm01 = w01 * (ax0 + ay1);
-			vec2 vm11 = w11 * (ax1 + ay1);
-			vec2 vm21 = w21 * (ax2 + ay1);	
+			vec3 vm01 = w[0][1] * vec3((ax0 + ay1), mass);
+			vec3 vm11 = w[1][1] * vec3((ax1 + ay1), mass);
+			vec3 vm21 = w[2][1] * vec3((ax2 + ay1), mass);	
 			
-			vec2 vm02 = w02 * (ax0 + ay2);
-			vec2 vm12 = w12 * (ax1 + ay2);
-			vec2 vm22 = w22 * (ax2 + ay2);
+			vec3 vm02 = w[0][2] * vec3((ax0 + ay2), mass);
+			vec3 vm12 = w[1][2] * vec3((ax1 + ay2), mass);
+			vec3 vm22 = w[2][2] * vec3((ax2 + ay2), mass);
 
 			int sx0 = gridStepX(coordsInBlock.x);
 			int sx1 = gridStepX(coordsInBlock.x + 1u);
@@ -335,19 +304,19 @@ void main()
 			atomicAdd(shVWGrid[i22].y, vm22.y);
 
 
-			atomicAdd(shMGrid[i00], mass * w00);
-			atomicAdd(shMGrid[i10], mass * w10);
-			atomicAdd(shMGrid[i20], mass * w20);
+			atomicAdd(shMGrid[i00], vm00.z);
+			atomicAdd(shMGrid[i10], vm10.z);
+			atomicAdd(shMGrid[i20], vm20.z);
 
-			atomicAdd(shMGrid[i01], mass * w01);
-			atomicAdd(shMGrid[i11], mass * w11);
-			atomicAdd(shMGrid[i21], mass * w21);
+			atomicAdd(shMGrid[i01], vm01.z);
+			atomicAdd(shMGrid[i11], vm11.z);
+			atomicAdd(shMGrid[i21], vm21.z);
 
-			atomicAdd(shMGrid[i02], mass * w02);
-			atomicAdd(shMGrid[i12], mass * w12);
-			atomicAdd(shMGrid[i22], mass * w22);
+			atomicAdd(shMGrid[i02], vm02.z);
+			atomicAdd(shMGrid[i12], vm12.z);
+			atomicAdd(shMGrid[i22], vm22.z);
 
-			uvec2 blockCoords = uvec2(cellPosition - 1.5) >> LOG2_G;
+			uvec2 blockCoords = (coords - 1u) >> LOG2_G;
 			uint particleInBlock = atomicAdd(histogram[blockIndex(blockCoords.x, blockCoords.y)], 1);
 			bins[binIndex].particleInBlock[pIndex] = particleInBlock;
 		}

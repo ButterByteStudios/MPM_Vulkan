@@ -39,11 +39,11 @@ namespace uil
 		// i3 = 1: beta
 		// i4 = 1: M
 		// i5 = 1: xi
-		float params[6];
+		float params[8];
 		int materialType;
 	};
 
-	using Parameters = std::array<float, 6>;
+	using Parameters = std::array<float, 8>;
 	using Conversion = std::function<float(const Parameters&)>;
 
 	// Material to material layout: on the mpm-vulkan side store per material a function that maps the parameters array to material layouts
