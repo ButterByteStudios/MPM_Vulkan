@@ -566,19 +566,19 @@ private:
 			uil::InputData("Density", uil::InputData::InputType::INPUT_FLOAT, 1.0f, 100.0f, 1000.0f, 0, "Density in kg/m^2"),
 			uil::InputData("E", uil::InputData::InputType::INPUT_FLOAT, 1.0f, 100.0f, 10000000.0f, 0, "Young's modulus: Stiffness of material"),
 			uil::InputData("v", uil::InputData::InputType::SLIDER_FLOAT, 0.0f, 0.49f, 0.4f, 0, "Poisson ratio: Incompressability of material"),
-			uil::InputData("Hardened friction angle", uil::InputData::InputType::SLIDER_FLOAT, 0.0f, 90.0f, 20.0f, 0, "Friction angle after fully hardening"),
+			uil::InputData("Friction angle", uil::InputData::InputType::SLIDER_FLOAT, 0.0f, 90.0f, 20.0f, 0, "Initial friction angle without hardening"),
 			uil::InputData("hardening strength", uil::InputData::InputType::SLIDER_FLOAT, 0.0f, 2.0f, 0.4f, 0, "How much hardening affects the friction angle"),
 			uil::InputData("hardening rate", uil::InputData::InputType::SLIDER_FLOAT, 0.0f, 2.0f, 0.4f, 0, "How fast hardening changes with plastic deformation"),
-			uil::InputData("Initial friction angle", uil::InputData::InputType::SLIDER_FLOAT, 0.0f, 90.0f, 20.0f, 0, "Initial friction angle without hardening"),
+			uil::InputData("Offset", uil::InputData::InputType::SLIDER_FLOAT, 0.0f, 90.0f, 20.0f, 0, "Friction angle offset after fully hardening"),
 		};
 		std::vector<uil::Conversion> nadpConversions{
 			[](const uil::Parameters& p) { return p[0]; }, // rho
 			[](const uil::Parameters& p) { return p[1] * p[2] / ((1 + p[2]) * (1 - 2 * p[2])); }, // E and v to lambda
 			[](const uil::Parameters& p) { return p[1] / (2.0 + 2.0 * p[2]); }, // E and v to mu
-			[](const uil::Parameters& p) { return glm::radians(p[3]); }, // h_0
+			[](const uil::Parameters& p) { return glm::radians(p[3] + p[6]); }, // h_0
 			[](const uil::Parameters& p) { return glm::radians(p[4]); }, // h_1
 			[](const uil::Parameters& p) { return glm::radians(p[5]); }, // h_2
-			[](const uil::Parameters& p) { return glm::radians(p[3] - p[6]); }, // h_3
+			[](const uil::Parameters& p) { return glm::radians(p[6]); }, // h_3
 		};
 		materialsManager->addMaterialType("nadp plasticity", nadpInputs, nadpConversions);
 						
