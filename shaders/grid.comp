@@ -78,7 +78,7 @@ void main()
 	}
 
 	// Put in pushconstants maybe
-	float cflSpeed = 0.5 * pubo.invDt;
+	float cflSpeed = 0.1 * pubo.invDt;
 
 	// Convert momentum to velocity
 	vGrid[i] = clamp((v / m) + acceleration, -cflSpeed, cflSpeed);

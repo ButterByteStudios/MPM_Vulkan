@@ -40,6 +40,16 @@ layout(set = 0, std430, binding = BIND_MAT) buffer MaterialsSSBOIn
 	Material mats[];
 };
 
+layout(set = 0, std430, binding = BIND_GBF) writeonly buffer GridBlockFlagSSBOOut
+{
+	uint gridBlockFlag[];
+};
+
+layout(set = 0, std430, binding = BIND_PBF) writeonly buffer ParticleBlockFlagSSBOOut
+{
+	uint particleBlockFlag[];
+};
+
 layout(set = 2, std430, binding = BIND_BR) buffer BinSSBOInOut
 {
 	Bin bins[];
@@ -327,4 +337,16 @@ void main()
 	atomicAdd(vWGrid[gridSubblockCellIndex].x, shVWGrid[localSubblockIndex].x);
 	atomicAdd(vWGrid[gridSubblockCellIndex].y, shVWGrid[localSubblockIndex].y);
 	atomicAdd(mGrid[gridSubblockCellIndex], shMGrid[localSubblockIndex]);
+
+	// Toggle flags
+	if (pIndex == 0)
+	{
+		particleBlockFlag[block] = 1; // Only one workgroup gets dispatched per block, so can be not atomic
+
+		// Grid blocks can overlap. The bottom left of the 4 used subblocks is the index of gridblockcoords
+		atomicOr(gridBlockFlag[blockIndex(gridBlockCoords.x, gridBlockCoords.y)], 1u);
+		atomicOr(gridBlockFlag[blockIndex(gridBlockCoords.x + 1, gridBlockCoords.y)], 1u);
+		atomicOr(gridBlockFlag[blockIndex(gridBlockCoords.x, gridBlockCoords.y + 1)], 1u);
+		atomicOr(gridBlockFlag[blockIndex(gridBlockCoords.x + 1, gridBlockCoords.y + 1)], 1u);
+	}
 }

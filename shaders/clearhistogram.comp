@@ -8,14 +8,23 @@ layout(set = 0, std430, binding = BIND_H) writeonly buffer BlockHistogramSSBOOut
 	uint histogram[];
 };
 
-layout(set = 0, local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+layout(set = 0, std430, binding = BIND_GBF) writeonly buffer GridBlockFlagSSBOOut
+{
+	uint gridBlockFlag[];
+};
+
+layout(set = 0, std430, binding = BIND_PBF) writeonly buffer ParticleBlockFlagSSBOOut
+{
+	uint particleBlockFlag[];
+};
+
+layout(set = 0, local_size_x = BIN_SIZE, local_size_y = 1, local_size_z = 1) in;
 
 void main()
 {
-	if (gl_GlobalInvocationID.x >= pubo.blocks)
-	{
-		return;
-	}
+	uint id = gl_GlobalInvocationID.x;
 
-	histogram[gl_GlobalInvocationID.x] = 0;
+	histogram[id] = 0;
+	particleBlockFlag[id] = 0;
+	gridBlockFlag[id] = 0;
 }

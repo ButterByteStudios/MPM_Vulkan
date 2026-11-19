@@ -296,6 +296,8 @@ private:
 	val::AllocatedBuffer binSumBuffer;
 	val::AllocatedBuffer materialsBuffer; // add a framesinflight amount of material buffers in case it gets used in rendering
 	val::AllocatedBuffer materialStagingBuffer;
+	val::AllocatedBuffer gridBlockFlagBuffer;
+	val::AllocatedBuffer particleBlockFlagBuffer; 
 
 	val::AllocatedBuffer indirectDispatchBuffer;
 
@@ -306,9 +308,10 @@ private:
 	uint32_t dimensions = 1 << 7;
 	uint32_t nodeCount = dimensions * dimensions;
 	uint32_t gridBlockDimensions = dimensions / 4;
+	uint32_t paddedGridBlockDimensions = glm::exp2(glm::ceil(glm::log2(static_cast<float>(gridBlockDimensions))));
+	uint32_t paddedGridBlockCount = paddedGridBlockDimensions * paddedGridBlockDimensions;
 	uint32_t particleBlockDimensions = gridBlockDimensions - 1;
-	uint32_t paddedParticleBlockDimensions = glm::exp2(glm::ceil(glm::log2(static_cast<float>(gridBlockDimensions))));
-	uint32_t paddedParticleBlockCount = paddedParticleBlockDimensions * paddedParticleBlockDimensions;
+	uint32_t paddedParticleBlockDimensions = glm::exp2(glm::ceil(glm::log2(static_cast<float>(particleBlockDimensions))));
 
 	uint32_t binCount = particleBlockDimensions * particleBlockDimensions + ceilIntDivision(MAX_PARTICLE_COUNT, BIN_SIZE) + 1; // Impossibly worst case scenario. Every bin is full and all blocks have one non-full bin plus 1 bin for particle adding
 
@@ -1415,10 +1418,10 @@ private:
 	{
 		std::vector<dsl::DescriptorAllocator::PoolSizeRatio> substepSizes =
 		{
-			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 9.0f / 9.0f }
+			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 11.0f / 11.0f }
 		};
 
-		substepComputeDescriptorAllocator.initPool(device, 2 * 9, substepSizes);
+		substepComputeDescriptorAllocator.initPool(device, 2 * 11, substepSizes);
 
 		dsl::DescriptorLayoutBuilder substepBuilder{};
 		substepBuilder.addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // VR
@@ -1430,6 +1433,9 @@ private:
 		substepBuilder.addBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // BS
 		substepBuilder.addBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // SID
 		substepBuilder.addBinding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // MAT
+		substepBuilder.addBinding(9, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // GBF
+		substepBuilder.addBinding(10, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // PBF
+
 
 		substepBuilder.build(device, VK_SHADER_STAGE_COMPUTE_BIT, substepComputeDescriptorSetLayout);
 
@@ -1441,7 +1447,7 @@ private:
 		for (size_t i = 0; i < 2; i++)
 		{
 			uint32_t binding = 0;
-			std::array<VkWriteDescriptorSet, 9> descriptorWrites{};
+			std::array<VkWriteDescriptorSet, 11> descriptorWrites{};
 
 			VkDescriptorBufferInfo vBufferReadInfo{};
 			vBufferReadInfo.buffer = vBuffers[(i + 2 - 1) % 2].buffer;
@@ -1488,7 +1494,7 @@ private:
 			VkDescriptorBufferInfo histogramBufferInfo{};
 			histogramBufferInfo.buffer = histogramBuffer.buffer;
 			histogramBufferInfo.offset = 0;
-			histogramBufferInfo.range = sizeof(uint32_t) * paddedParticleBlockCount;
+			histogramBufferInfo.range = sizeof(uint32_t) * paddedGridBlockCount;
 
 			binding = 3;
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1502,7 +1508,7 @@ private:
 			VkDescriptorBufferInfo binCountBufferInfo{};
 			binCountBufferInfo.buffer = binCountBuffer.buffer;
 			binCountBufferInfo.offset = 0;
-			binCountBufferInfo.range = sizeof(uint32_t) * paddedParticleBlockCount;
+			binCountBufferInfo.range = sizeof(uint32_t) * paddedGridBlockCount;
 
 			binding = 4;
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1516,7 +1522,7 @@ private:
 			VkDescriptorBufferInfo binOffsetsBufferInfo{};
 			binOffsetsBufferInfo.buffer = binOffsetsBuffer.buffer;
 			binOffsetsBufferInfo.offset = 0;
-			binOffsetsBufferInfo.range = sizeof(uint32_t) * paddedParticleBlockCount;
+			binOffsetsBufferInfo.range = sizeof(uint32_t) * paddedGridBlockCount;
 
 			binding = 5;
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1568,6 +1574,34 @@ private:
 			descriptorWrites[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 			descriptorWrites[binding].descriptorCount = 1;
 			descriptorWrites[binding].pBufferInfo = &materialsBufferInfo;
+
+			VkDescriptorBufferInfo gridBlockFlagBufferInfo{};
+			gridBlockFlagBufferInfo.buffer = gridBlockFlagBuffer.buffer;
+			gridBlockFlagBufferInfo.offset = 0;
+			gridBlockFlagBufferInfo.range = sizeof(uint32_t) * paddedGridBlockCount;
+
+			binding = 9;
+			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[binding].dstSet = substepDescriptorSets[i];
+			descriptorWrites[binding].dstBinding = binding;
+			descriptorWrites[binding].dstArrayElement = 0;
+			descriptorWrites[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			descriptorWrites[binding].descriptorCount = 1;
+			descriptorWrites[binding].pBufferInfo = &gridBlockFlagBufferInfo;
+
+			VkDescriptorBufferInfo particleBlockFlagBufferInfo{};
+			particleBlockFlagBufferInfo.buffer = particleBlockFlagBuffer.buffer;
+			particleBlockFlagBufferInfo.offset = 0;
+			particleBlockFlagBufferInfo.range = sizeof(uint32_t) * paddedGridBlockCount;
+
+			binding = 10;
+			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[binding].dstSet = substepDescriptorSets[i];
+			descriptorWrites[binding].dstBinding = binding;
+			descriptorWrites[binding].dstArrayElement = 0;
+			descriptorWrites[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			descriptorWrites[binding].descriptorCount = 1;
+			descriptorWrites[binding].pBufferInfo = &particleBlockFlagBufferInfo;
 
 			vkUpdateDescriptorSets(device, descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
 		}
@@ -1957,7 +1991,7 @@ private:
 
 			// Look into https://research.nvidia.com/publication/2016-03_single-pass-parallel-prefix-scan-decoupled-look-back
 			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, localsumComputePipeline);
-			vkCmdDispatch(commandBuffer, ceilIntDivision(paddedParticleBlockCount, SUM_KERNEL_SIZE), 1, 1);
+			vkCmdDispatch(commandBuffer, ceilIntDivision(paddedGridBlockCount, SUM_KERNEL_SIZE), 1, 1);
 
 			vkCmdPipelineBarrier(commandBuffer,
 				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -1981,7 +2015,7 @@ private:
 			);
 
 			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, globalsumComputePipeline);
-			vkCmdDispatch(commandBuffer, ceilIntDivision(paddedParticleBlockCount, SUM_KERNEL_SIZE), 1, 1);
+			vkCmdDispatch(commandBuffer, ceilIntDivision(paddedGridBlockCount, SUM_KERNEL_SIZE), 1, 1);
 
 			vkCmdPipelineBarrier(commandBuffer,
 				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -2018,7 +2052,7 @@ private:
 			);
 
 			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, clearhistogramComputePipeline);
-			vkCmdDispatch(commandBuffer, ceilIntDivision(paddedParticleBlockCount, (BLOCK_KERNEL_SIZE * BLOCK_KERNEL_SIZE)), 1, 1);
+			vkCmdDispatch(commandBuffer, ceilIntDivision(paddedGridBlockCount, BIN_SIZE), 1, 1);
 
 			vkCmdPipelineBarrier(commandBuffer,
 				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -2142,7 +2176,7 @@ private:
 
 		uint32_t cells = nodeCount;
 
-		std::vector<uint32_t> histogram(paddedParticleBlockCount);
+		std::vector<uint32_t> histogram(paddedGridBlockCount);
 		std::vector<glm::vec2> particles(MAX_PARTICLE_COUNT);
 		std::vector<uint32_t> blockIndices(MAX_PARTICLE_COUNT);
 		std::vector<uint32_t> blockPIndex(MAX_PARTICLE_COUNT);
@@ -2170,18 +2204,18 @@ private:
 		//	particles[i] = cellPos;
 		//}
 
-		std::vector<uint32_t> binCounts(paddedParticleBlockCount);
-		std::vector<uint32_t> binOffsets(paddedParticleBlockCount);
+		std::vector<uint32_t> binCounts(paddedGridBlockCount);
+		std::vector<uint32_t> binOffsets(paddedGridBlockCount);
 
-		//for (size_t i = 1; i < paddedParticleBlockCount; i++)
+		//for (size_t i = 1; i < paddedGridBlockCount; i++)
 		//{
 		//	uint32_t binCount = ceilIntDivision(histogram[i - 1], BIN_SIZE);
 		//	binCounts[i - 1] = binCount;
 		//	binOffsets[i] = binCount + binOffsets[i - 1];
 		//
 		//}
-		binCounts[paddedParticleBlockCount - 1] = ceilIntDivision(histogram[paddedParticleBlockCount - 1], BIN_SIZE);
-		uint32_t totalUsedBins = binOffsets[paddedParticleBlockCount - 1] + binCounts[paddedParticleBlockCount - 1];
+		binCounts[paddedGridBlockCount - 1] = ceilIntDivision(histogram[paddedGridBlockCount - 1], BIN_SIZE);
+		uint32_t totalUsedBins = binOffsets[paddedGridBlockCount - 1] + binCounts[paddedGridBlockCount - 1];
 
 		std::vector<Bin> bins(binCount);
 		//for (size_t i = 0; i < MAX_PARTICLE_COUNT; i++)
@@ -2262,8 +2296,8 @@ private:
 		//
 
 		// Histogram
-		std::vector<uint32_t> h(paddedParticleBlockCount);
-		bufferSize = sizeof(uint32_t) * paddedParticleBlockCount;
+		std::vector<uint32_t> h(paddedGridBlockCount);
+		bufferSize = sizeof(uint32_t) * paddedGridBlockCount;
 		
 		stagingBuffer = createStagingBuffer(bufferSize);
 		memcpy(stagingBuffer.mapped, h.data(), (size_t)bufferSize);
@@ -2280,7 +2314,7 @@ private:
 		//
 
 		// BinCount
-		bufferSize = sizeof(uint32_t) * paddedParticleBlockCount;
+		bufferSize = sizeof(uint32_t) * paddedGridBlockCount;
 
 		stagingBuffer = createStagingBuffer(bufferSize);
 		memcpy(stagingBuffer.mapped, binCounts.data(), (size_t)bufferSize);
@@ -2297,7 +2331,7 @@ private:
 		//
 
 		// BinOffsets
-		bufferSize = sizeof(uint32_t) * paddedParticleBlockCount;
+		bufferSize = sizeof(uint32_t) * paddedGridBlockCount;
 
 		stagingBuffer = createStagingBuffer(bufferSize);
 		memcpy(stagingBuffer.mapped, binOffsets.data(), (size_t)bufferSize);
@@ -2373,6 +2407,42 @@ private:
 			val::BufferUsage::Staging,
 			val::BufferLifetime::Static
 			});
+		//
+
+		// Grid block flags
+		std::vector<uint32_t> gFlags(paddedGridBlockCount);
+		bufferSize = sizeof(uint32_t) * paddedGridBlockCount;
+
+		stagingBuffer = createStagingBuffer(bufferSize);
+		memcpy(stagingBuffer.mapped, gFlags.data(), (size_t)bufferSize);
+
+		gridBlockFlagBuffer = bufferAllocator.create({
+			bufferSize,
+			val::BufferUsage::Storage,
+			val::BufferLifetime::Static
+			});
+
+		copyBuffer(stagingBuffer.buffer, gridBlockFlagBuffer.buffer, bufferSize);
+
+		stagingBuffer.dispose();
+		//
+
+		// Particle block flags
+		std::vector<uint32_t> pFlags(paddedGridBlockCount);
+		bufferSize = sizeof(uint32_t) * paddedGridBlockCount;
+
+		stagingBuffer = createStagingBuffer(bufferSize);
+		memcpy(stagingBuffer.mapped, pFlags.data(), (size_t)bufferSize);
+
+		particleBlockFlagBuffer = bufferAllocator.create({
+			bufferSize,
+			val::BufferUsage::Storage,
+			val::BufferLifetime::Static
+			});
+
+		copyBuffer(stagingBuffer.buffer, particleBlockFlagBuffer.buffer, bufferSize);
+
+		stagingBuffer.dispose();
 		//
 		
 		// Maybe create seperate transferqueue?
@@ -2821,6 +2891,8 @@ private:
 		indirectDispatchBuffer.dispose();
 		materialsBuffer.dispose();
 		materialStagingBuffer.dispose();
+		gridBlockFlagBuffer.dispose();
+		particleBlockFlagBuffer.dispose();
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{

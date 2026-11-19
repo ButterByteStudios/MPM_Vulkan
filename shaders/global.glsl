@@ -7,6 +7,8 @@
 #define BIND_BS (6)
 #define BIND_SID (7)
 #define BIND_MAT (8)
+#define BIND_GBF (9)
+#define BIND_PBF (10)
 
 #define BIND_PUBO (0)
 #define BIND_TUBO (1)
