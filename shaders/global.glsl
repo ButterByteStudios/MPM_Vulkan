@@ -77,15 +77,22 @@ layout(set = 1, binding = BIND_PUBO) uniform ParameterUBO
 	float dx;
 	float invDx;
 	uint dimensions;
-	uint blockDimensions;
-	uint blocks;
+	uint particleBlockDimensions;
+	uint particleBlocks;
+	uint gridBlockDimensions;
+	uint gridBlocks;
 	float dt;
 	float invDt;
 } pubo;
 
-uint blockIndex(uint x, uint y)
+uint gridBlockIndex(uint x, uint y)
 {
-	return x + y * pubo.blockDimensions;
+	return x + y * pubo.gridBlockDimensions;
+}
+
+uint particleBlockIndex(uint x, uint y)
+{
+	return x + y * pubo.particleBlockDimensions;
 }
 
 uint part1by1(uint x)

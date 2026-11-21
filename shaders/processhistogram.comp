@@ -28,12 +28,12 @@ void main()
 	uint x = gl_GlobalInvocationID.x;
 	uint y = gl_GlobalInvocationID.y;
 
-	if (x >= pubo.blockDimensions || y >= pubo.blockDimensions)
+	if (x >= pubo.particleBlockDimensions || y >= pubo.particleBlockDimensions)
 	{
 		return;
 	}
 
-    uint block = blockIndex(x, y);
+    uint block = particleBlockIndex(x, y);
 
     uint particleCount = histogram[block];
     uint binCount = (particleCount + BIN_SIZE - 1) / BIN_SIZE;

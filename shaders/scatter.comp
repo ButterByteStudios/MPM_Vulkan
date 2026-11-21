@@ -39,7 +39,7 @@ void main()
 
 	// Find block index from pos = (floor(cellpos + 0.5) - 2) / 4
 	ivec2 blockCoords = ivec2(cellPos - 1.5) >> LOG2_G; // Divide by 4
-	uint block = blockIndex(blockCoords.x, blockCoords.y);
+	uint block = particleBlockIndex(blockCoords.x, blockCoords.y);
 
 	uint particleInBlock = binsIn[bIndex].particleInBlock[currentPIndex];
 	uint nextPIndex = particleInBlock & BIN_MASK;

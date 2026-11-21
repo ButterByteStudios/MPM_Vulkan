@@ -112,17 +112,18 @@ void main()
 	uint dimensions = pubo.dimensions;
 
 	uint pIndex = gl_LocalInvocationID.x;
-	ivec2 gridBlockCoords = ivec2(gl_WorkGroupID.xy);
-	ivec2 gridBlockCellCoords = gridBlockCoords * G;
+	ivec2 blockCoords = ivec2(gl_WorkGroupID.xy);
+	ivec2 blockCellCoords = blockCoords * G;
 
-	uint block = blockIndex(gridBlockCoords.x, gridBlockCoords.y);
-	uint binCount = blockBinCount[block];
+	uint gridBlock = gridBlockIndex(blockCoords.x, blockCoords.y);
+	uint particleBlock = particleBlockIndex(blockCoords.x, blockCoords.y);
+	uint binCount = blockBinCount[particleBlock];
 
 	if (binCount == 0)
 	{
 		return;
 	}
-	uint baseBin = blockBinOffsets[block];
+	uint baseBin = blockBinOffsets[particleBlock];
 
 	// Subblock x/y represent the subblock offsets determined by the bin
 	uint subblockIndex = pIndex >> 4; // pIndex / 16
@@ -130,7 +131,7 @@ void main()
 	uint subblockCellY = (subblockIndex >> 1) * G;
 	uint localIndex = pIndex & 15u; // pIndex % 16
 
-	uint gridSubblockCellIndex = lossyMorton(gridBlockCellCoords.x + subblockCellX, gridBlockCellCoords.y + subblockCellY) + localIndex;
+	uint gridSubblockCellIndex = lossyMorton(blockCellCoords.x + subblockCellX, blockCellCoords.y + subblockCellY) + localIndex;
 	uint localSubblockIndex = pIndex;
 
 	shVRGrid[localSubblockIndex] = vRGrid[gridSubblockCellIndex];
@@ -153,7 +154,7 @@ void main()
 			float mass = bins[binIndex].mass[pIndex];
 
 			ivec2 coords = ivec2(cellPosition - 0.5);
-			ivec2 coordsInBlock = coords - gridBlockCellCoords;
+			ivec2 coordsInBlock = coords - blockCellCoords;
 			
 			vec2 d = coords - cellPosition;
 
@@ -198,7 +199,7 @@ void main()
 			mat2 F = (mat2(1.0) + B * dtInvD) * bins[binIndex].F[pIndex];
 
 			// 2 outer node halos are off limits so particles stay in particle block territory
-			cellPosition = clamp(cellPosition + dt * v * invDx, 2, dimensions - 2);
+			cellPosition = clamp(cellPosition + dt * v * invDx, 3, dimensions - 3);
 
 			bins[binIndex].position[pIndex] = cellPosition;
 
@@ -230,7 +231,7 @@ void main()
 			bins[binIndex].F[pIndex] = F;
 
 			coords = ivec2(cellPosition - 0.5);
-			coordsInBlock = coords - gridBlockCellCoords;
+			coordsInBlock = coords - blockCellCoords;
 
 			d = coords - cellPosition;
 
@@ -327,7 +328,7 @@ void main()
 			atomicAdd(shMGrid[i22], vm22.z);
 
 			uvec2 blockCoords = (coords - 1u) >> LOG2_G;
-			uint particleInBlock = atomicAdd(histogram[blockIndex(blockCoords.x, blockCoords.y)], 1);
+			uint particleInBlock = atomicAdd(histogram[particleBlockIndex(blockCoords.x, blockCoords.y)], 1);
 			bins[binIndex].particleInBlock[pIndex] = particleInBlock;
 		}
 	}
@@ -341,12 +342,12 @@ void main()
 	// Toggle flags
 	if (pIndex == 0)
 	{
-		particleBlockFlag[block] = 1; // Only one workgroup gets dispatched per block, so can be not atomic
+		particleBlockFlag[particleBlock] = 1; // Only one workgroup gets dispatched per block, so can be not atomic
 
 		// Grid blocks can overlap. The bottom left of the 4 used subblocks is the index of gridblockcoords
-		atomicOr(gridBlockFlag[blockIndex(gridBlockCoords.x, gridBlockCoords.y)], 1u);
-		atomicOr(gridBlockFlag[blockIndex(gridBlockCoords.x + 1, gridBlockCoords.y)], 1u);
-		atomicOr(gridBlockFlag[blockIndex(gridBlockCoords.x, gridBlockCoords.y + 1)], 1u);
-		atomicOr(gridBlockFlag[blockIndex(gridBlockCoords.x + 1, gridBlockCoords.y + 1)], 1u);
+		atomicOr(gridBlockFlag[gridBlockIndex(blockCoords.x, blockCoords.y)], 1u);
+		atomicOr(gridBlockFlag[gridBlockIndex(blockCoords.x + 1, blockCoords.y)], 1u);
+		atomicOr(gridBlockFlag[gridBlockIndex(blockCoords.x, blockCoords.y + 1)], 1u);
+		atomicOr(gridBlockFlag[gridBlockIndex(blockCoords.x + 1, blockCoords.y + 1)], 1u);
 	}
 }

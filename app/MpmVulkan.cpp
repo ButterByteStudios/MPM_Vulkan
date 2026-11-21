@@ -77,8 +77,10 @@ struct alignas(8) ParameterUBO
 	float dx;
 	float invDx;
 	uint32_t dimensions;
-	uint32_t blockDimensions;
-	uint32_t blocks;
+	uint32_t particleBlockDimensions;
+	uint32_t particleBlocks;
+	uint32_t gridBlockDimensions;
+	uint32_t gridBlocks;
 	float dt;
 	float invDt;
 };
@@ -809,8 +811,10 @@ private:
 		pUBO.dx = dx;
 		pUBO.invDx = 1.0f / dx;
 		pUBO.dimensions = dimensions;
-		pUBO.blockDimensions = particleBlockDimensions;
-		pUBO.blocks = particleBlockDimensions * particleBlockDimensions;
+		pUBO.particleBlockDimensions = particleBlockDimensions;
+		pUBO.particleBlocks = particleBlockDimensions * particleBlockDimensions;
+		pUBO.gridBlockDimensions = gridBlockDimensions;
+		pUBO.gridBlocks = gridBlockDimensions * gridBlockDimensions;
 		pUBO.dt = pausedSimulation ? 0 : dt;
 		pUBO.invDt = 1.0f / pUBO.dt;
 		pUBO.speed = accel;

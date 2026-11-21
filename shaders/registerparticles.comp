@@ -90,7 +90,7 @@ void main()
     
     uvec2 coords = uvec2(cellPosition - 0.5);
     uvec2 blockCoords = (coords - 1u) >> LOG2_G; // Divide by 4
-    uint block = blockIndex(blockCoords.x, blockCoords.y);
+    uint block = gridBlockIndex(blockCoords.x, blockCoords.y);
 
     vec2 d = coords - cellPosition;
 
@@ -111,7 +111,7 @@ void main()
 	atomicAdd(mGrid[partialMorton(coords.x + 1, coords.y + 2)], tubo.mass * w[1][2]);
 	atomicAdd(mGrid[partialMorton(coords.x + 2, coords.y + 2)], tubo.mass * w[2][2]);
 
-    uint particleInBlock = atomicAdd(histogram[blockIndex(blockCoords.x, blockCoords.y)], 1);
+    uint particleInBlock = atomicAdd(histogram[particleBlockIndex(blockCoords.x, blockCoords.y)], 1);
 
     // scatter to binsin at the end of all block bins and let the regular scatter kernel handle integration for next iteration
     bins[bIndex].F[pIndex] = mat2(1.0);
@@ -127,12 +127,12 @@ void main()
     }
     
 
-	atomicOr(particleBlockFlag[block], 1u);
+	atomicOr(particleBlockFlag[particleBlockIndex(blockCoords.x, blockCoords.y)], 1u);
 
 	// Grid blocks can overlap. The bottom left of the 4 used subblocks is the index of gridblockcoords
-	atomicOr(gridBlockFlag[blockIndex(blockCoords.x,blockCoords.y)], 1u);
-	atomicOr(gridBlockFlag[blockIndex(blockCoords.x + 1, blockCoords.y)], 1u);
-	atomicOr(gridBlockFlag[blockIndex(blockCoords.x, blockCoords.y + 1)], 1u);
-	atomicOr(gridBlockFlag[blockIndex(blockCoords.x + 1, blockCoords.y + 1)], 1u);
+	atomicOr(gridBlockFlag[gridBlockIndex(blockCoords.x,blockCoords.y)], 1u);
+	atomicOr(gridBlockFlag[gridBlockIndex(blockCoords.x + 1, blockCoords.y)], 1u);
+	atomicOr(gridBlockFlag[gridBlockIndex(blockCoords.x, blockCoords.y + 1)], 1u);
+	atomicOr(gridBlockFlag[gridBlockIndex(blockCoords.x + 1, blockCoords.y + 1)], 1u);
 	
 }
