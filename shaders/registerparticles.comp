@@ -41,17 +41,25 @@ layout(set = 0, std430, binding = BIND_PBF) buffer ParticleBlockFlagSSBOInOut
 	uint particleBlockFlag[];
 };
 
-layout(set = 0, std430, binding = BIND_SID) buffer ScatterIndirectIn
+layout(set = 0, std430, binding = BIND_SID) buffer ScatterIndirectOut
 {
 	uint scatterX;
 	uint scatterY;
 	uint scatterZ;
 
-    uint vertexCount;
-    uint instanceCount;
-    uint firstVertex;
-    uint firstInstance;
+	uint vertexCount;
+	uint instanceCount;
+	uint firstVertex;
+	uint firstInstance;
 
+	uint particleX;
+	uint particleY;
+	uint particleZ;
+
+	uint gridX;
+	uint gridY;
+	uint gridZ;
+	
     uint totalBins;
 };
 

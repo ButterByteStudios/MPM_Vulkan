@@ -115,6 +115,14 @@ struct IndirectDispatchData
 	uint32_t firstVertex;
 	uint32_t firstInstance;
 
+	uint32_t particleX;
+	uint32_t particleY;
+	uint32_t particleZ;
+
+	uint32_t gridX;
+	uint32_t gridY;
+	uint32_t gridZ;
+
 	uint32_t totalBins;
 };
 
@@ -299,6 +307,8 @@ private:
 	val::AllocatedBuffer materialStagingBuffer;
 	val::AllocatedBuffer gridBlockFlagBuffer;
 	val::AllocatedBuffer particleBlockFlagBuffer; 
+	val::AllocatedBuffer gridIndexHashmapBuffer;
+	val::AllocatedBuffer particleIndexHashmapBuffer;
 
 	val::AllocatedBuffer indirectDispatchBuffer;
 
@@ -309,9 +319,11 @@ private:
 	uint32_t dimensions = 1 << 7;
 	uint32_t nodeCount = dimensions * dimensions;
 	uint32_t gridBlockDimensions = dimensions / 4;
+	uint32_t gridBlockCount = gridBlockDimensions * gridBlockDimensions;
 	uint32_t paddedGridBlockDimensions = glm::exp2(glm::ceil(glm::log2(static_cast<float>(gridBlockDimensions))));
 	uint32_t paddedGridBlockCount = paddedGridBlockDimensions * paddedGridBlockDimensions;
 	uint32_t particleBlockDimensions = gridBlockDimensions - 1;
+	uint32_t particleBlockCount = particleBlockDimensions * particleBlockDimensions;
 	uint32_t paddedParticleBlockDimensions = glm::exp2(glm::ceil(glm::log2(static_cast<float>(particleBlockDimensions))));
 
 	uint32_t binCount = particleBlockDimensions * particleBlockDimensions + ceilIntDivision(MAX_PARTICLE_COUNT, BIN_SIZE) + 1; // Impossibly worst case scenario. Every bin is full and all blocks have one non-full bin plus 1 bin for particle adding
@@ -1421,10 +1433,10 @@ private:
 	{
 		std::vector<dsl::DescriptorAllocator::PoolSizeRatio> substepSizes =
 		{
-			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 10.0f / 10.0f }
+			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 12.0f / 12.0f }
 		};
 
-		substepComputeDescriptorAllocator.initPool(device, 2 * 10, substepSizes);
+		substepComputeDescriptorAllocator.initPool(device, 2 * 12, substepSizes);
 
 		dsl::DescriptorLayoutBuilder substepBuilder{};
 		substepBuilder.addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // VR
@@ -1437,7 +1449,8 @@ private:
 		substepBuilder.addBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // MAT
 		substepBuilder.addBinding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // GBF
 		substepBuilder.addBinding(9, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // PBF
-
+		substepBuilder.addBinding(10, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // GHM
+		substepBuilder.addBinding(11, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // PHM
 
 		substepBuilder.build(device, VK_SHADER_STAGE_COMPUTE_BIT, substepComputeDescriptorSetLayout);
 
@@ -1449,7 +1462,7 @@ private:
 		for (size_t i = 0; i < 2; i++)
 		{
 			uint32_t binding = 0;
-			std::array<VkWriteDescriptorSet, 10> descriptorWrites{};
+			std::array<VkWriteDescriptorSet, 12> descriptorWrites{};
 
 			VkDescriptorBufferInfo vBufferReadInfo{};
 			vBufferReadInfo.buffer = vBuffers[(i + 2 - 1) % 2].buffer;
@@ -1590,6 +1603,34 @@ private:
 			descriptorWrites[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 			descriptorWrites[binding].descriptorCount = 1;
 			descriptorWrites[binding].pBufferInfo = &particleBlockFlagBufferInfo;
+
+			VkDescriptorBufferInfo gridIndexHashmapBufferInfo{};
+			gridIndexHashmapBufferInfo.buffer = gridIndexHashmapBuffer.buffer;
+			gridIndexHashmapBufferInfo.offset = 0;
+			gridIndexHashmapBufferInfo.range = sizeof(uint32_t) * gridBlockCount;
+
+			binding = 10;
+			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[binding].dstSet = substepDescriptorSets[i];
+			descriptorWrites[binding].dstBinding = binding;
+			descriptorWrites[binding].dstArrayElement = 0;
+			descriptorWrites[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			descriptorWrites[binding].descriptorCount = 1;
+			descriptorWrites[binding].pBufferInfo = &gridIndexHashmapBufferInfo;
+
+			VkDescriptorBufferInfo particleIndexHashmapBufferInfo{};
+			particleIndexHashmapBufferInfo.buffer = particleIndexHashmapBuffer.buffer;
+			particleIndexHashmapBufferInfo.offset = 0;
+			particleIndexHashmapBufferInfo.range = sizeof(uint32_t) * particleBlockCount;
+
+			binding = 11;
+			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[binding].dstSet = substepDescriptorSets[i];
+			descriptorWrites[binding].dstBinding = binding;
+			descriptorWrites[binding].dstArrayElement = 0;
+			descriptorWrites[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			descriptorWrites[binding].descriptorCount = 1;
+			descriptorWrites[binding].pBufferInfo = &particleIndexHashmapBufferInfo;
 
 			vkUpdateDescriptorSets(device, descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
 		}
@@ -2040,7 +2081,7 @@ private:
 			);
 
 			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, clearhistogramComputePipeline);
-			vkCmdDispatch(commandBuffer, ceilIntDivision(paddedGridBlockCount, BIN_SIZE), 1, 1);
+			vkCmdDispatch(commandBuffer, ceilIntDivision(paddedGridBlockCount, SUM_KERNEL_SIZE), 1, 1);
 
 			vkCmdPipelineBarrier(commandBuffer,
 				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -2341,10 +2382,20 @@ private:
 		indirectDispatchData.dispatchX = totalUsedBins;
 		indirectDispatchData.dispatchY = 1;
 		indirectDispatchData.dispatchZ = 1;
+
 		indirectDispatchData.vertexCount = totalUsedBins * BIN_SIZE;
 		indirectDispatchData.instanceCount = 1;
 		indirectDispatchData.firstVertex = 0;
 		indirectDispatchData.firstInstance = 0;
+
+		indirectDispatchData.particleX = 0;
+		indirectDispatchData.particleY = 1;
+		indirectDispatchData.particleZ = 1;
+
+		indirectDispatchData.gridX = 0;
+		indirectDispatchData.gridY = 1;
+		indirectDispatchData.gridZ = 1;
+
 		indirectDispatchData.totalBins = totalUsedBins;
 
 		stagingBuffer = createStagingBuffer(bufferSize);
@@ -2411,6 +2462,42 @@ private:
 			});
 
 		copyBuffer(stagingBuffer.buffer, particleBlockFlagBuffer.buffer, bufferSize);
+
+		stagingBuffer.dispose();
+		//
+
+		// Grid block index hashmap
+		std::vector<uint32_t> zeroGridHash(gridBlockCount);
+		bufferSize = sizeof(uint32_t) * gridBlockCount;
+
+		stagingBuffer = createStagingBuffer(bufferSize);
+		memcpy(stagingBuffer.mapped, zeroGridHash.data(), (size_t)bufferSize);
+
+		gridIndexHashmapBuffer = bufferAllocator.create({
+			bufferSize,
+			val::BufferUsage::Storage,
+			val::BufferLifetime::Static
+			});
+
+		copyBuffer(stagingBuffer.buffer, gridIndexHashmapBuffer.buffer, bufferSize);
+
+		stagingBuffer.dispose();
+		//
+
+		// Particle block index hashmap
+		std::vector<uint32_t> zeroParticleHash(particleBlockCount);
+		bufferSize = sizeof(uint32_t) * particleBlockCount;
+
+		stagingBuffer = createStagingBuffer(bufferSize);
+		memcpy(stagingBuffer.mapped, zeroParticleHash.data(), (size_t)bufferSize);
+
+		particleIndexHashmapBuffer = bufferAllocator.create({
+			bufferSize,
+			val::BufferUsage::Storage,
+			val::BufferLifetime::Static
+			});
+
+		copyBuffer(stagingBuffer.buffer, particleIndexHashmapBuffer.buffer, bufferSize);
 
 		stagingBuffer.dispose();
 		//
@@ -2862,6 +2949,9 @@ private:
 		materialStagingBuffer.dispose();
 		gridBlockFlagBuffer.dispose();
 		particleBlockFlagBuffer.dispose();
+		gridIndexHashmapBuffer.dispose();
+		particleIndexHashmapBuffer.dispose();
+
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{

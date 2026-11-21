@@ -18,6 +18,29 @@ layout(set = 0, std430, binding = BIND_PBF) buffer ParticleBlockFlagSSBOInOut
 	uint particleBlockFlag[];
 };
 
+layout(set = 0, std430, binding = BIND_SID) writeonly buffer ScatterIndirectOut
+{
+	uint scatterX;
+	uint scatterY;
+	uint scatterZ;
+
+	uint vertexCount;
+	uint instanceCount;
+	uint firstVertex;
+	uint firstInstance;
+
+	uint particleX;
+	uint particleY;
+	uint particleZ;
+
+	uint gridX;
+	uint gridY;
+	uint gridZ;
+	
+    uint totalBins;
+};
+
+
 #define W (128)
 #define W2 (W * 2)
 #define W2m1 (W2 - 1)
@@ -29,13 +52,24 @@ shared uvec3 shSum[W2];
 // Exclusive prefix sum on 256 size blocks
 void main()
 {
+	// Load the last valid value into the totals since the final flag wont be preserved in the exclusive prefix sum
+	if (gl_GlobalInvocationID.x == pubo.particleBlocks - 1)
+	{
+		particleX = particleBlockFlag[pubo.particleBlocks - 1];
+	}
+
+	if (gl_GlobalInvocationID.x == pubo.gridBlocks - 1)
+	{
+		gridX = gridBlockFlag[pubo.gridBlocks - 1];
+	}
+
 	uint localId = gl_LocalInvocationID.x;
 	uint block = gl_WorkGroupID.x;
 
 	uint base = block * W2;
 
-	shSum[2 * localId] = uvec3(blockBinOffsets[base + 2 * localId], gridBlockFlag[base + 2 * localId], blockBinOffsets[base + 2 * localId]);
-	shSum[2 * localId + 1] = uvec3(blockBinOffsets[base + 2 * localId + 1], gridBlockFlag[base + 2 * localId + 1], blockBinOffsets[base + 2 * localId + 1]);
+	shSum[2 * localId] = uvec3(blockBinOffsets[base + 2 * localId], gridBlockFlag[base + 2 * localId], particleBlockFlag[base + 2 * localId]);
+	shSum[2 * localId + 1] = uvec3(blockBinOffsets[base + 2 * localId + 1], gridBlockFlag[base + 2 * localId + 1], particleBlockFlag[base + 2 * localId + 1]);
 
 	barrier();
 

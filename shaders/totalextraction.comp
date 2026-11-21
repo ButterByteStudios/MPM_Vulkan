@@ -13,6 +13,17 @@ layout(set = 0, std430, binding = BIND_BO) readonly buffer BlockBinOffsetsSSBOOu
     uint blockBinOffsets[];
 };
 
+layout(set = 0, std430, binding = BIND_GBF) buffer GridBlockFlagSSBOInOut
+{
+	uint gridBlockFlag[];
+};
+
+layout(set = 0, std430, binding = BIND_PBF) buffer ParticleBlockFlagSSBOInOut
+{
+	uint particleBlockFlag[];
+};
+
+
 layout(set = 0, std430, binding = BIND_SID) writeonly buffer ScatterIndirectOut
 {
 	uint scatterX;
@@ -23,6 +34,14 @@ layout(set = 0, std430, binding = BIND_SID) writeonly buffer ScatterIndirectOut
 	uint instanceCount;
 	uint firstVertex;
 	uint firstInstance;
+
+	uint particleX;
+	uint particleY;
+	uint particleZ;
+
+	uint gridX;
+	uint gridY;
+	uint gridZ;
 	
     uint totalBins;
 };
@@ -35,4 +54,7 @@ void main()
     scatterX = newTotalBins;
 	totalBins = newTotalBins;
 	vertexCount = newTotalBins * BIN_SIZE;
+
+	particleX += particleBlockFlag[pubo.particleBlocks - 1];
+	gridX += gridBlockFlag[pubo.gridBlocks - 1];
 }
