@@ -3,32 +3,27 @@
 #extension GL_ARB_shading_language_include: enable
 #include "global.glsl"
 
-layout(set = 0, std430, binding = BIND_BO) writeonly buffer BlockBinOffsetsSSBOOut
+layout(set = 0, std430, binding = BIND_BO) buffer BlockBinOffsetsSSBOOut
 {
     uint blockBinOffsets[];
 };
 
-layout(set = 0, std430, binding = BIND_BS) readonly buffer LocalBinSumOffsetsSSBOIn
-{
-	uint localBinSumOffsets[];
-};
-
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
-shared uint binSum;
+shared uint offset;
 
 void main()
 {
 	uint localId = gl_LocalInvocationID.x;
-	uint block = gl_WorkGroupID.x;
-
-	uint base = block * 256; // Replace for global id
+	uint globalId = gl_GlobalInvocationID.x;
 
 	if (localId == 0)
 	{
-		binSum = localBinSumOffsets[block];
+		offset = blockBinOffsets[globalId];
+		blockBinOffsets[globalId] = 0;
 	}
+
 	barrier();
 
-	blockBinOffsets[base + localId] += binSum;
+	blockBinOffsets[globalId] += offset;
 }

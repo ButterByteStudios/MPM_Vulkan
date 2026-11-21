@@ -293,7 +293,6 @@ private:
 	val::AllocatedBuffer histogramBuffer;
 	val::AllocatedBuffer binCountBuffer;
 	val::AllocatedBuffer binOffsetsBuffer;
-	val::AllocatedBuffer binSumBuffer;
 	val::AllocatedBuffer materialsBuffer; // add a framesinflight amount of material buffers in case it gets used in rendering
 	val::AllocatedBuffer materialStagingBuffer;
 	val::AllocatedBuffer gridBlockFlagBuffer;
@@ -1418,10 +1417,10 @@ private:
 	{
 		std::vector<dsl::DescriptorAllocator::PoolSizeRatio> substepSizes =
 		{
-			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 11.0f / 11.0f }
+			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 10.0f / 10.0f }
 		};
 
-		substepComputeDescriptorAllocator.initPool(device, 2 * 11, substepSizes);
+		substepComputeDescriptorAllocator.initPool(device, 2 * 10, substepSizes);
 
 		dsl::DescriptorLayoutBuilder substepBuilder{};
 		substepBuilder.addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // VR
@@ -1430,11 +1429,10 @@ private:
 		substepBuilder.addBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // H
 		substepBuilder.addBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // BC
 		substepBuilder.addBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // BO
-		substepBuilder.addBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // BS
-		substepBuilder.addBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // SID
-		substepBuilder.addBinding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // MAT
-		substepBuilder.addBinding(9, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // GBF
-		substepBuilder.addBinding(10, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // PBF
+		substepBuilder.addBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // SID
+		substepBuilder.addBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // MAT
+		substepBuilder.addBinding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // GBF
+		substepBuilder.addBinding(9, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // PBF
 
 
 		substepBuilder.build(device, VK_SHADER_STAGE_COMPUTE_BIT, substepComputeDescriptorSetLayout);
@@ -1447,7 +1445,7 @@ private:
 		for (size_t i = 0; i < 2; i++)
 		{
 			uint32_t binding = 0;
-			std::array<VkWriteDescriptorSet, 11> descriptorWrites{};
+			std::array<VkWriteDescriptorSet, 10> descriptorWrites{};
 
 			VkDescriptorBufferInfo vBufferReadInfo{};
 			vBufferReadInfo.buffer = vBuffers[(i + 2 - 1) % 2].buffer;
@@ -1533,26 +1531,12 @@ private:
 			descriptorWrites[binding].descriptorCount = 1;
 			descriptorWrites[binding].pBufferInfo = &binOffsetsBufferInfo;
 
-			VkDescriptorBufferInfo binSumBufferInfo{};
-			binSumBufferInfo.buffer = binSumBuffer.buffer;
-			binSumBufferInfo.offset = 0;
-			binSumBufferInfo.range = sizeof(uint32_t) * BLOCK_KERNEL_SIZE * BLOCK_KERNEL_SIZE;
-
-			binding = 6;
-			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			descriptorWrites[binding].dstSet = substepDescriptorSets[i];
-			descriptorWrites[binding].dstBinding = binding;
-			descriptorWrites[binding].dstArrayElement = 0;
-			descriptorWrites[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-			descriptorWrites[binding].descriptorCount = 1;
-			descriptorWrites[binding].pBufferInfo = &binSumBufferInfo;
-
 			VkDescriptorBufferInfo indirectDispatchBufferInfo{};
 			indirectDispatchBufferInfo.buffer = indirectDispatchBuffer.buffer;
 			indirectDispatchBufferInfo.offset = 0;
 			indirectDispatchBufferInfo.range = sizeof(IndirectDispatchData);
 
-			binding = 7;
+			binding = 6;
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			descriptorWrites[binding].dstSet = substepDescriptorSets[i];
 			descriptorWrites[binding].dstBinding = binding;
@@ -1566,7 +1550,7 @@ private:
 			materialsBufferInfo.offset = 0;
 			materialsBufferInfo.range = sizeof(uil::MaterialLayout) * MAX_MATERIAL_COUNT;
 
-			binding = 8;
+			binding = 7;
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			descriptorWrites[binding].dstSet = substepDescriptorSets[i];
 			descriptorWrites[binding].dstBinding = binding;
@@ -1580,7 +1564,7 @@ private:
 			gridBlockFlagBufferInfo.offset = 0;
 			gridBlockFlagBufferInfo.range = sizeof(uint32_t) * paddedGridBlockCount;
 
-			binding = 9;
+			binding = 8;
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			descriptorWrites[binding].dstSet = substepDescriptorSets[i];
 			descriptorWrites[binding].dstBinding = binding;
@@ -1594,7 +1578,7 @@ private:
 			particleBlockFlagBufferInfo.offset = 0;
 			particleBlockFlagBufferInfo.range = sizeof(uint32_t) * paddedGridBlockCount;
 
-			binding = 10;
+			binding = 9;
 			descriptorWrites[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			descriptorWrites[binding].dstSet = substepDescriptorSets[i];
 			descriptorWrites[binding].dstBinding = binding;
@@ -2347,24 +2331,6 @@ private:
 		stagingBuffer.dispose();
 		//
 
-		// local sums
-		std::vector<uint32_t> emptySums(BLOCK_KERNEL_SIZE * BLOCK_KERNEL_SIZE);
-		bufferSize = sizeof(uint32_t) * BLOCK_KERNEL_SIZE * BLOCK_KERNEL_SIZE;
-
-		stagingBuffer = createStagingBuffer(bufferSize);
-		memcpy(stagingBuffer.mapped, emptySums.data(), (size_t)bufferSize);
-
-		binSumBuffer = bufferAllocator.create({
-			bufferSize,
-			val::BufferUsage::Storage,
-			val::BufferLifetime::Static
-			});
-
-		copyBuffer(stagingBuffer.buffer, binSumBuffer.buffer, bufferSize);
-
-		stagingBuffer.dispose();
-		//
-
 		// Indirect dispatches
 		bufferSize = sizeof(IndirectDispatchData);
 		IndirectDispatchData indirectDispatchData{};
@@ -2887,7 +2853,6 @@ private:
 		histogramBuffer.dispose();
 		binCountBuffer.dispose();
 		binOffsetsBuffer.dispose();
-		binSumBuffer.dispose();
 		indirectDispatchBuffer.dispose();
 		materialsBuffer.dispose();
 		materialStagingBuffer.dispose();

@@ -8,9 +8,14 @@ layout(set = 0, std430, binding = BIND_BO) buffer BlockBinOffsetsSSBOInOut
     uint blockBinOffsets[];
 };
 
-layout(set = 0, std430, binding = BIND_BS) writeonly buffer LocalBinSumSSBOOut
+layout(set = 0, std430, binding = BIND_GBF) buffer GridBlockFlagSSBOOut
 {
-	uint localBinSum[];
+	uint gridBlockFlag[];
+};
+
+layout(set = 0, std430, binding = BIND_PBF) buffer ParticleBlockFlagSSBOOut
+{
+	uint particleBlockFlag[];
 };
 
 #define W (128)
@@ -20,7 +25,10 @@ layout(set = 0, std430, binding = BIND_BS) writeonly buffer LocalBinSumSSBOOut
 layout(local_size_x = W, local_size_y = 1, local_size_z = 1) in;
 
 shared uint shBin[W2];
+shared uint shGrid[W2];
+shared uint shParticle[W2];
 
+// Exclusive prefix sum on 256 size blocks
 void main()
 {
 	uint localId = gl_LocalInvocationID.x;
@@ -30,6 +38,12 @@ void main()
 
 	shBin[2 * localId] = blockBinOffsets[base + 2 * localId];
 	shBin[2 * localId + 1] = blockBinOffsets[base + 2 * localId + 1];
+
+	//shGrid[2 * localId] = gridBlockFlag[base + 2 * localId];
+	//shGrid[2 * localId + 1] = gridBlockFlag[base + 2 * localId + 1];
+
+	//shParticle[2 * localId] = blockBinOffsets[base + 2 * localId];
+	//shParticle[2 * localId + 1] = blockBinOffsets[base + 2 * localId + 1];
 
 	barrier();
 
@@ -45,9 +59,10 @@ void main()
 	}
 
 	// Clear last
+	uint totalSum;
 	if (localId == 0)
 	{
-		localBinSum[block] = shBin[W2m1];
+		totalSum = shBin[W2m1];
 		shBin[W2m1] = 0;
 	}
 
@@ -68,4 +83,9 @@ void main()
 
 	blockBinOffsets[base + 2 * localId] = shBin[2 * localId];
 	blockBinOffsets[base + 2 * localId + 1] = shBin[2 * localId + 1];
+
+	if (localId == 0)
+	{
+		blockBinOffsets[base] = totalSum;
+	}
 }
