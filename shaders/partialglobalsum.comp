@@ -8,6 +8,16 @@ layout(set = 0, std430, binding = BIND_BO) buffer BlockBinOffsetsSSBOInOut
     uint blockBinOffsets[];
 };
 
+layout(set = 0, std430, binding = BIND_GBF) buffer GridBlockFlagSSBOInOut
+{
+	uint gridBlockFlag[];
+};
+
+layout(set = 0, std430, binding = BIND_PBF) buffer ParticleBlockFlagSSBOInOut
+{
+	uint particleBlockFlag[];
+};
+
 // Works on blocks of 128 * 2, so N / 256 workgroups. This always has 1 workgroup
 #define W (128)
 #define W2 (W * 2)
@@ -15,14 +25,14 @@ layout(set = 0, std430, binding = BIND_BO) buffer BlockBinOffsetsSSBOInOut
 
 layout(local_size_x = W, local_size_y = 1, local_size_z = 1) in;
 
-shared uint shBin[W2];
+shared uvec3 shSum[W2];
 
 void main()
 {
 	uint localId = gl_LocalInvocationID.x;
 
-	shBin[2 * localId] = blockBinOffsets[2 * localId * W2];
-	shBin[2 * localId + 1] = blockBinOffsets[(2 * localId + 1) * W2];
+	shSum[2 * localId] = uvec3(blockBinOffsets[2 * localId * W2], gridBlockFlag[2 * localId * W2], blockBinOffsets[2 * localId * W2]);
+	shSum[2 * localId + 1] = uvec3(blockBinOffsets[(2 * localId + 1) * W2], gridBlockFlag[(2 * localId + 1) * W2], blockBinOffsets[(2 * localId + 1) * W2]);
 
 	barrier();
 
@@ -32,7 +42,7 @@ void main()
 		uint i = (localId + 1) * offset * 2 - 1;
 		if (i < W2)
 		{
-			shBin[i] += shBin[i - offset];
+			shSum[i] += shSum[i - offset];
 		}
 		barrier();
 	}
@@ -40,7 +50,7 @@ void main()
 	// Clear last
 	if (localId == 0)
 	{
-		shBin[W2m1] = 0;
+		shSum[W2m1] = uvec3(0);
 	}
 
 	barrier();
@@ -51,13 +61,19 @@ void main()
 		uint i = (localId + 1) * 2 * offset - 1;
 		if (i < W2)
 		{
-			uint tBin = shBin[i - offset];
-			shBin[i - offset] = shBin[i];
-			shBin[i] += tBin;
+			uvec3 temp = shSum[i - offset];
+			shSum[i - offset] = shSum[i];
+			shSum[i] += temp;
 		}
 		barrier();
 	}
 
-	blockBinOffsets[(2 * localId) * W2] = shBin[2 * localId];
-	blockBinOffsets[(2 * localId + 1) * W2] = shBin[2 * localId + 1];
+	blockBinOffsets[(2 * localId) * W2] = shSum[2 * localId].x;
+	blockBinOffsets[(2 * localId + 1) * W2] = shSum[2 * localId + 1].x;
+
+	gridBlockFlag[(2 * localId) * W2] = shSum[2 * localId].y;
+	gridBlockFlag[(2 * localId + 1) * W2] = shSum[2 * localId + 1].y;
+
+	particleBlockFlag[(2 * localId) * W2] = shSum[2 * localId].z;
+	particleBlockFlag[(2 * localId + 1) * W2] = shSum[2 * localId + 1].z;
 }

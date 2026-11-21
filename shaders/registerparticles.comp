@@ -31,6 +31,16 @@ layout(set = 0, std430, binding = BIND_M) writeonly buffer GridMassSSBOOut
 	float mGrid[];
 };
 
+layout(set = 0, std430, binding = BIND_GBF) buffer GridBlockFlagSSBOInOut
+{
+	uint gridBlockFlag[];
+};
+
+layout(set = 0, std430, binding = BIND_PBF) buffer ParticleBlockFlagSSBOInOut
+{
+	uint particleBlockFlag[];
+};
+
 layout(set = 0, std430, binding = BIND_SID) buffer ScatterIndirectIn
 {
 	uint scatterX;
@@ -115,4 +125,14 @@ void main()
     {
         bins[bIndex].particleCount = particleCount;
     }
+    
+
+	atomicOr(particleBlockFlag[block], 1u);
+
+	// Grid blocks can overlap. The bottom left of the 4 used subblocks is the index of gridblockcoords
+	atomicOr(gridBlockFlag[blockIndex(blockCoords.x,blockCoords.y)], 1u);
+	atomicOr(gridBlockFlag[blockIndex(blockCoords.x + 1, blockCoords.y)], 1u);
+	atomicOr(gridBlockFlag[blockIndex(blockCoords.x, blockCoords.y + 1)], 1u);
+	atomicOr(gridBlockFlag[blockIndex(blockCoords.x + 1, blockCoords.y + 1)], 1u);
+	
 }

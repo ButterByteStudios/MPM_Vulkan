@@ -8,12 +8,12 @@ layout(set = 0, std430, binding = BIND_BO) buffer BlockBinOffsetsSSBOInOut
     uint blockBinOffsets[];
 };
 
-layout(set = 0, std430, binding = BIND_GBF) buffer GridBlockFlagSSBOOut
+layout(set = 0, std430, binding = BIND_GBF) buffer GridBlockFlagSSBOInOut
 {
 	uint gridBlockFlag[];
 };
 
-layout(set = 0, std430, binding = BIND_PBF) buffer ParticleBlockFlagSSBOOut
+layout(set = 0, std430, binding = BIND_PBF) buffer ParticleBlockFlagSSBOInOut
 {
 	uint particleBlockFlag[];
 };
@@ -24,9 +24,7 @@ layout(set = 0, std430, binding = BIND_PBF) buffer ParticleBlockFlagSSBOOut
 
 layout(local_size_x = W, local_size_y = 1, local_size_z = 1) in;
 
-shared uint shBin[W2];
-shared uint shGrid[W2];
-shared uint shParticle[W2];
+shared uvec3 shSum[W2];
 
 // Exclusive prefix sum on 256 size blocks
 void main()
@@ -36,14 +34,8 @@ void main()
 
 	uint base = block * W2;
 
-	shBin[2 * localId] = blockBinOffsets[base + 2 * localId];
-	shBin[2 * localId + 1] = blockBinOffsets[base + 2 * localId + 1];
-
-	//shGrid[2 * localId] = gridBlockFlag[base + 2 * localId];
-	//shGrid[2 * localId + 1] = gridBlockFlag[base + 2 * localId + 1];
-
-	//shParticle[2 * localId] = blockBinOffsets[base + 2 * localId];
-	//shParticle[2 * localId + 1] = blockBinOffsets[base + 2 * localId + 1];
+	shSum[2 * localId] = uvec3(blockBinOffsets[base + 2 * localId], gridBlockFlag[base + 2 * localId], blockBinOffsets[base + 2 * localId]);
+	shSum[2 * localId + 1] = uvec3(blockBinOffsets[base + 2 * localId + 1], gridBlockFlag[base + 2 * localId + 1], blockBinOffsets[base + 2 * localId + 1]);
 
 	barrier();
 
@@ -53,17 +45,17 @@ void main()
 		uint i = (localId + 1) * offset * 2 - 1;
 		if (i < W2)
 		{
-			shBin[i] += shBin[i - offset];
+			shSum[i] += shSum[i - offset];
 		}
 		barrier();
 	}
 
 	// Clear last
-	uint totalSum;
+	uvec3 localSum;
 	if (localId == 0)
 	{
-		totalSum = shBin[W2m1];
-		shBin[W2m1] = 0;
+		localSum = shSum[W2m1];
+		shSum[W2m1] = uvec3(0);
 	}
 
 	barrier();
@@ -74,18 +66,26 @@ void main()
 		uint i = (localId + 1) * 2 * offset - 1;
 		if (i < W2)
 		{
-			uint tBin = shBin[i - offset];
-			shBin[i - offset] = shBin[i];
-			shBin[i] += tBin;
+			uvec3 temp = shSum[i - offset];
+			shSum[i - offset] = shSum[i];
+			shSum[i] += temp;
 		}
 		barrier();
 	}
 
-	blockBinOffsets[base + 2 * localId] = shBin[2 * localId];
-	blockBinOffsets[base + 2 * localId + 1] = shBin[2 * localId + 1];
+	blockBinOffsets[base + 2 * localId] = shSum[2 * localId].x;
+	blockBinOffsets[base + 2 * localId + 1] = shSum[2 * localId + 1].x;
+
+	gridBlockFlag[base + 2 * localId] = shSum[2 * localId].y;
+	gridBlockFlag[base + 2 * localId + 1] = shSum[2 * localId + 1].y;
+
+	particleBlockFlag[base + 2 * localId] = shSum[2 * localId].z;
+	particleBlockFlag[base + 2 * localId + 1] = shSum[2 * localId + 1].z;
 
 	if (localId == 0)
 	{
-		blockBinOffsets[base] = totalSum;
+		blockBinOffsets[base] = localSum.x;
+		gridBlockFlag[base] = localSum.y;
+		particleBlockFlag[base] = localSum.z;
 	}
 }
