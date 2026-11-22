@@ -8,9 +8,21 @@ layout(set = 0, std430, binding = BIND_BO) buffer BlockBinOffsetsSSBOOut
     uint blockBinOffsets[];
 };
 
+layout(set = 0, std430, binding = BIND_GBF) buffer GridBlockFlagSSBOInOut
+{
+	uint gridBlockFlag[];
+};
+
+layout(set = 0, std430, binding = BIND_PBF) buffer ParticleBlockFlagSSBOInOut
+{
+	uint particleBlockFlag[];
+};
+
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
-shared uint offset;
+shared uint binOffset;
+shared uint gridOffset;
+shared uint particleOffset;
 
 void main()
 {
@@ -19,11 +31,19 @@ void main()
 
 	if (localId == 0)
 	{
-		offset = blockBinOffsets[globalId];
+		binOffset = blockBinOffsets[globalId];
 		blockBinOffsets[globalId] = 0;
+
+		gridOffset = gridBlockFlag[globalId];
+		gridBlockFlag[globalId] = 0;
+
+		particleOffset = particleBlockFlag[globalId];
+		particleBlockFlag[globalId] = 0;
 	}
 
 	barrier();
 
-	blockBinOffsets[globalId] += offset;
+	blockBinOffsets[globalId] += binOffset;
+	gridBlockFlag[globalId] += gridOffset;
+	particleBlockFlag[globalId] += particleOffset;
 }

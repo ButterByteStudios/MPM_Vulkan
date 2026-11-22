@@ -31,8 +31,8 @@ void main()
 {
 	uint localId = gl_LocalInvocationID.x;
 
-	shSum[2 * localId] = uvec3(blockBinOffsets[2 * localId * W2], gridBlockFlag[2 * localId * W2], blockBinOffsets[2 * localId * W2]);
-	shSum[2 * localId + 1] = uvec3(blockBinOffsets[(2 * localId + 1) * W2], gridBlockFlag[(2 * localId + 1) * W2], blockBinOffsets[(2 * localId + 1) * W2]);
+	shSum[2 * localId] = uvec3(blockBinOffsets[2 * localId * W2], gridBlockFlag[2 * localId * W2], particleBlockFlag[2 * localId * W2]);
+	shSum[2 * localId + 1] = uvec3(blockBinOffsets[(2 * localId + 1) * W2], gridBlockFlag[(2 * localId + 1) * W2], particleBlockFlag[(2 * localId + 1) * W2]);
 
 	barrier();
 

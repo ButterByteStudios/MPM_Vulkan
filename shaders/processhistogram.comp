@@ -36,7 +36,7 @@ void main()
     uint block = particleBlockIndex(x, y);
 
     uint particleCount = histogram[block];
-    uint binCount = (particleCount + BIN_SIZE - 1) / BIN_SIZE;
+    uint binCount = (particleCount + BIN_SIZE - 1) >> LOG2_BIN_SIZE;
     blockBinCount[block] = binCount;
 	blockBinOffsets[block] = binCount;
 }

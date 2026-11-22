@@ -75,7 +75,7 @@ void main()
     if (id == 0)
     {
         // scatterX contains the amount of used bins. After registerNewParticles, we need to increase it by ceil(particlesAdded / BinSize) so the added particles get scattered
-        scatterX += (tubo.particleCount + BIN_SIZE - 1) >> LOG2_BIN_SIZE;
+        scatterX += gl_NumWorkGroups.x;
     }
 
     if (pIndex >= particleCount)
@@ -84,7 +84,7 @@ void main()
     // Calculate particle positions uniformly and randomly in the brush
     vec2 random = hash22(uvec2(id, tubo.stepCount));
 
-    vec2 cellPosition = mix(tubo.previousPos, tubo.pos, float(id) / (float(tubo.particleCount) - 1.0));
+    vec2 cellPosition = mix(tubo.previousPos, tubo.pos, float(id + 1) / float(tubo.particleCount));
 
     switch (tubo.toolShape)
     {
@@ -133,7 +133,6 @@ void main()
     {
         bins[bIndex].particleCount = particleCount;
     }
-    
 
 	atomicOr(particleBlockFlag[particleBlockIndex(blockCoords.x, blockCoords.y)], 1u);
 

@@ -53,12 +53,12 @@ shared uvec3 shSum[W2];
 void main()
 {
 	// Load the last valid value into the totals since the final flag wont be preserved in the exclusive prefix sum
-	if (gl_GlobalInvocationID.x == pubo.particleBlocks - 1)
+	if ((gl_GlobalInvocationID.x + 1) * 2 - pubo.particleBlocks <= 1)
 	{
 		particleX = particleBlockFlag[pubo.particleBlocks - 1];
 	}
 
-	if (gl_GlobalInvocationID.x == pubo.gridBlocks - 1)
+	if ((gl_GlobalInvocationID.x + 1) * 2 - pubo.gridBlocks <= 1)
 	{
 		gridX = gridBlockFlag[pubo.gridBlocks - 1];
 	}
