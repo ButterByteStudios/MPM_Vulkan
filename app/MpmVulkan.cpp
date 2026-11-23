@@ -349,9 +349,9 @@ private:
 	glm::vec2 accel = glm::vec2(0);
 
 	// Add tool demo
-	bool addParticles = false;
+	bool addParticles = true;
 	uint32_t particleCount = 0;
-	uint32_t addParticleDensity = 64;
+	uint32_t addParticleDensity = 1;
 	uint32_t addedParticleCount = 0;
 
 	void mainLoop()
@@ -866,7 +866,7 @@ private:
 		//if (distance / static_cast<float>(dimensions) < 0.00001f)
 		//	particleScale = 0.2f;
 
-		uint32_t maxAddedParticles = static_cast<uint32_t>(static_cast<float>(addParticleDensity) * particleScale);
+		uint32_t maxAddedParticles = static_cast<uint32_t>(static_cast<float>(addParticleDensity) * 1);
 		addedParticleCount = particlesLeft < maxAddedParticles ? 0 : maxAddedParticles;
 
 		if (addedParticleCount == 0)
@@ -2069,18 +2069,7 @@ private:
 				0, nullptr
 			);
 
-			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, totalextractionComputePipeline);
-			vkCmdDispatch(commandBuffer, 1, 1, 1);
-
-			vkCmdPipelineBarrier(commandBuffer,
-				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-				0,
-				1, &computeToComputeBarrier,
-				0, nullptr,
-				0, nullptr
-			);
-
+			// Run before totalextraction because the indirect buffer preserved values can be used for the last hashmap index
 			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, createhashmapComputePipeline);
 			vkCmdDispatch(commandBuffer, ceilIntDivision(gridBlockCount, SUM_KERNEL_SIZE), 1, 1);
 
@@ -2093,8 +2082,20 @@ private:
 				0, nullptr
 			);
 
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, totalextractionComputePipeline);
+			vkCmdDispatch(commandBuffer, 1, 1, 1);
+
+			vkCmdPipelineBarrier(commandBuffer,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+				0,
+				1, &computeToIndirectBarrier,
+				0, nullptr,
+				0, nullptr
+			);
+
 			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, gridComputePipeline);
-			vkCmdDispatch(commandBuffer, ceilIntDivision(dimensions, GRID_KERNEL_SIZE), ceilIntDivision(dimensions, GRID_KERNEL_SIZE), 1);
+			vkCmdDispatchIndirect(commandBuffer, indirectDispatchBuffer.buffer, sizeof(uint32_t) * 10);
 
 			vkCmdPipelineBarrier(commandBuffer,
 				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,

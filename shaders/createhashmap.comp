@@ -13,6 +13,28 @@ layout(set = 0, std430, binding = BIND_PBF) buffer ParticleBlockFlagSSBOInOut
 	uint particleBlockFlag[];
 };
 
+layout(set = 0, std430, binding = BIND_SID) readonly buffer ScatterIndirectOut
+{
+	uint scatterX;
+	uint scatterY;
+	uint scatterZ;
+
+	uint vertexCount;
+	uint instanceCount;
+	uint firstVertex;
+	uint firstInstance;
+
+	uint particleX;
+	uint particleY;
+	uint particleZ;
+
+	uint gridX;
+	uint gridY;
+	uint gridZ;
+	
+    uint totalBins;
+};
+
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 void main()
@@ -20,14 +42,17 @@ void main()
     uint id = gl_GlobalInvocationID.x;
     // id is the partial morton shifted to the right by 4
 
-    // We can store the hashmap in the flags buffer
-    if (id < pubo.gridBlocks && gridBlockFlag[id] != gridBlockFlag[id + 1])
+    // We can store the hashmap in the flags buffer. Check if logic works out (if we set the correct hash index to the correct hash value based on the check and if we do the correct edge case checking)
+    if (id < pubo.gridBlocks - 1 && gridBlockFlag[id] != gridBlockFlag[id + 1])
         gridBlockFlag[gridBlockFlag[id]] = id;  
-    else if (id == 0 && gridBlockFlag[0] != 0)
-        gridBlockFlag[0] = 0;
 
-    if (id < pubo.particleBlocks && particleBlockFlag[id] != particleBlockFlag[id + 1])
+    if (id < pubo.particleBlocks - 1 && particleBlockFlag[id] != particleBlockFlag[id + 1])
         particleBlockFlag[particleBlockFlag[id]] = id;
-    else if (id == 0 && particleBlockFlag[0] != 0)
-        particleBlockFlag[0] = 0;
+
+    // Handle information loss of the last item in the flags after the exclusive prefix sum
+    if (id == pubo.gridBlocks - 1 && gridX == 1)
+        gridBlockFlag[gridBlockFlag[id]] = id; 
+    
+    if (id == pubo.particleBlocks - 1 && particleX == 1)
+        particleBlockFlag[particleBlockFlag[id]] = id;
 }

@@ -113,7 +113,7 @@ void main()
 
 	uint pIndex = gl_LocalInvocationID.x;
 	ivec2 blockCoords = ivec2(gl_WorkGroupID.xy);
-	ivec2 blockCellCoords = blockCoords * G;
+	ivec2 blockCellCoords = blockCoords << LOG2_G;
 
 	uint particleBlock = particleBlockIndex(blockCoords.x, blockCoords.y);
 	uint binCount = blockBinCount[particleBlock];
@@ -126,8 +126,8 @@ void main()
 
 	// Subblock x/y represent the subblock offsets determined by the bin
 	uint subblockIndex = pIndex >> 4; // pIndex / 16
-	uint subblockCellX = (subblockIndex & 1) * G;
-	uint subblockCellY = (subblockIndex >> 1) * G;
+	uint subblockCellX = (subblockIndex & 1) << LOG2_G;
+	uint subblockCellY = (subblockIndex >> 1) << LOG2_G;
 	uint localIndex = pIndex & 15u; // pIndex % 16
 
 	uint gridSubblockCellIndex = lossyMorton(blockCellCoords.x + subblockCellX, blockCellCoords.y + subblockCellY) + localIndex;
@@ -342,11 +342,11 @@ void main()
 	if (pIndex == 0)
 	{
 		particleBlockFlag[particleBlock] = 1; // Only one workgroup gets dispatched per block, so can be not atomic
+	}
 
+	if (localIndex == 0)
+	{
 		// Grid blocks can overlap. The bottom left of the 4 used subblocks is the index of gridblockcoords
-		atomicOr(gridBlockFlag[gridBlockIndex(blockCoords.x, blockCoords.y)], 1u);
-		atomicOr(gridBlockFlag[gridBlockIndex(blockCoords.x + 1, blockCoords.y)], 1u);
-		atomicOr(gridBlockFlag[gridBlockIndex(blockCoords.x, blockCoords.y + 1)], 1u);
-		atomicOr(gridBlockFlag[gridBlockIndex(blockCoords.x + 1, blockCoords.y + 1)], 1u);
+		atomicOr(gridBlockFlag[gridSubblockCellIndex >> 4], 1u);
 	}
 }

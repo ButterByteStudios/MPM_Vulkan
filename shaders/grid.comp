@@ -18,26 +18,46 @@ layout(set = 0, std430, binding = BIND_M) buffer GridMassSSBOIn
 	float mGrid[];
 };
 
-layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
+layout(set = 0, std430, binding = BIND_GBF) buffer GridBlockFlagSSBOInOut
+{
+	uint gridBlockFlag[];
+};
+
+layout(set = 0, std430, binding = BIND_PBF) buffer ParticleBlockFlagSSBOInOut
+{
+	uint particleBlockFlag[];
+};
+
+layout(local_size_x = 16, local_size_y = 1, local_size_z = 1) in;
+
+shared uint originX;
+shared uint originY;
 
 void main()
 {
-    uint x = gl_GlobalInvocationID.x;
-    uint y = gl_GlobalInvocationID.y;
+    uint activeBlock = gl_WorkGroupID.x;
+	uint blockMorton = gridBlockFlag[activeBlock];
+	uint cellIndex = (blockMorton << 4) + gl_LocalInvocationID.x;
 
-	if (x >= pubo.dimensions || y >= pubo.dimensions)
+	if (gl_LocalInvocationID.x == 0)
 	{
-		return;
-	}
-    
-    uint i = partialMorton(x, y);
+		originX = compact1by1(blockMorton << 4);
+		originY = compact1by1(blockMorton << 3);
 
-	vec2 v = vGrid[i];
-	float m = mGrid[i];
+		gridBlockFlag[activeBlock] = originX;
+	}
+
+	barrier();
+
+	uint x = originX + (gl_LocalInvocationID.x & 0x03);
+	uint y = originY + (gl_LocalInvocationID.x >> 2);
+
+	vec2 v = vGrid[cellIndex];
+	float m = mGrid[cellIndex];
 
 	// Reset mass for next steps scatter
-	mGrid[i] = 0;
-	vClearGrid[i] = vec2(0);
+	mGrid[cellIndex] = 0;
+	vClearGrid[cellIndex] = vec2(0); // vClear isnt getting fully cleared
 
 	// 3 outer node halos are boundaries so particles stay in particle block territory
 	bool left = x <= 4;
@@ -49,7 +69,7 @@ void main()
 
 	if (m == 0)
 	{
-		vGrid[i] = vec2(0);
+		vGrid[cellIndex] = vec2(0);
 		return;
 	}
 
@@ -81,5 +101,5 @@ void main()
 	float cflSpeed = 0.1 * pubo.invDt;
 
 	// Convert momentum to velocity
-	vGrid[i] = clamp((v / m) + acceleration, -cflSpeed, cflSpeed);
+	vGrid[cellIndex] = clamp((v / m) + acceleration, -cflSpeed, cflSpeed);
 }
