@@ -3,9 +3,31 @@
 #extension GL_ARB_shading_language_include: enable
 #include "global.glsl"
 
-layout(local_size_x = BIN_SIZE, local_size_y = 1, local_size_z = 1) in;
+layout(set = 0, std430, binding = BIND_GBF) buffer GridBlockFlagSSBOInOut
+{
+	uint gridBlockFlag[];
+};
+
+layout(set = 0, std430, binding = BIND_PBF) buffer ParticleBlockFlagSSBOInOut
+{
+	uint particleBlockFlag[];
+};
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 void main()
 {
-    
+    uint id = gl_GlobalInvocationID.x;
+    // id is the partial morton shifted to the right by 4
+
+    // We can store the hashmap in the flags buffer
+    if (id < pubo.gridBlocks && gridBlockFlag[id] != gridBlockFlag[id + 1])
+        gridBlockFlag[gridBlockFlag[id]] = id;  
+    else if (id == 0 && gridBlockFlag[0] != 0)
+        gridBlockFlag[0] = 0;
+
+    if (id < pubo.particleBlocks && particleBlockFlag[id] != particleBlockFlag[id + 1])
+        particleBlockFlag[particleBlockFlag[id]] = id;
+    else if (id == 0 && particleBlockFlag[0] != 0)
+        particleBlockFlag[0] = 0;
 }

@@ -258,6 +258,7 @@ private:
 	VkPipeline globalsumComputePipeline;
 	VkPipeline scatterComputePipeline;
 	VkPipeline totalextractionComputePipeline;
+	VkPipeline createhashmapComputePipeline;
 	VkPipeline clearhistogramComputePipeline;
 	VkPipeline gridComputePipeline;
 	VkPipeline registerparticlesComputePipeline;
@@ -1699,6 +1700,7 @@ private:
 		auto globalsumCode = readFile("../shaders/globalsum.comp.spv");
 		auto scatterCode = readFile("../shaders/scatter.comp.spv");
 		auto totalextractionCode = readFile("../shaders/totalextraction.comp.spv");
+		auto createhashmapCode = readFile("../shaders/createhashmap.comp.spv");
 		auto clearhistogramCode = readFile("../shaders/clearhistogram.comp.spv");
 		auto gridCode = readFile("../shaders/grid.comp.spv");
 		auto registerparticlesCode = readFile("../shaders/registerparticles.comp.spv");
@@ -1712,6 +1714,7 @@ private:
 			createShaderModule(globalsumCode),
 			createShaderModule(scatterCode),
 			createShaderModule(totalextractionCode),
+			createShaderModule(createhashmapCode),
 			createShaderModule(clearhistogramCode),
 			createShaderModule(gridCode),
 			createShaderModule(registerparticlesCode)
@@ -1772,9 +1775,10 @@ private:
 		globalsumComputePipeline = pipelines[4];
 		scatterComputePipeline = pipelines[5];
 		totalextractionComputePipeline = pipelines[6];
-		clearhistogramComputePipeline = pipelines[7];
-		gridComputePipeline = pipelines[8];
-		registerparticlesComputePipeline = pipelines[9];
+		createhashmapComputePipeline = pipelines[7];
+		clearhistogramComputePipeline = pipelines[8];
+		gridComputePipeline = pipelines[9];
+		registerparticlesComputePipeline = pipelines[10];
 
 		for (VkShaderModule& module : shaderModules)
 		{
@@ -2003,9 +2007,6 @@ private:
 				);
 			}
 
-			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, gridComputePipeline);
-			vkCmdDispatch(commandBuffer, ceilIntDivision(dimensions, GRID_KERNEL_SIZE), ceilIntDivision(dimensions, GRID_KERNEL_SIZE), 1);
-
 			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, processhistogramComputePipeline);
 			vkCmdDispatch(commandBuffer, ceilIntDivision(paddedParticleBlockDimensions, BLOCK_KERNEL_SIZE), ceilIntDivision(paddedParticleBlockDimensions, BLOCK_KERNEL_SIZE), 1);
 
@@ -2070,6 +2071,30 @@ private:
 
 			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, totalextractionComputePipeline);
 			vkCmdDispatch(commandBuffer, 1, 1, 1);
+
+			vkCmdPipelineBarrier(commandBuffer,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				0,
+				1, &computeToComputeBarrier,
+				0, nullptr,
+				0, nullptr
+			);
+
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, createhashmapComputePipeline);
+			vkCmdDispatch(commandBuffer, ceilIntDivision(gridBlockCount, SUM_KERNEL_SIZE), 1, 1);
+
+			vkCmdPipelineBarrier(commandBuffer,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				0,
+				1, &computeToComputeBarrier,
+				0, nullptr,
+				0, nullptr
+			);
+
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, gridComputePipeline);
+			vkCmdDispatch(commandBuffer, ceilIntDivision(dimensions, GRID_KERNEL_SIZE), ceilIntDivision(dimensions, GRID_KERNEL_SIZE), 1);
 
 			vkCmdPipelineBarrier(commandBuffer,
 				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -2904,6 +2929,7 @@ private:
 		vkDestroyPipeline(device, partialglobalsumComputePipeline, nullptr);
 		vkDestroyPipeline(device, globalsumComputePipeline, nullptr);
 		vkDestroyPipeline(device, totalextractionComputePipeline, nullptr);
+		vkDestroyPipeline(device, createhashmapComputePipeline, nullptr);
 		vkDestroyPipeline(device, scatterComputePipeline, nullptr);
 		vkDestroyPipeline(device, clearhistogramComputePipeline, nullptr);
 		vkDestroyPipeline(device, gridComputePipeline, nullptr);

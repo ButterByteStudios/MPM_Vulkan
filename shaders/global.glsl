@@ -85,16 +85,6 @@ layout(set = 1, binding = BIND_PUBO) uniform ParameterUBO
 	float invDt;
 } pubo;
 
-uint gridBlockIndex(uint x, uint y)
-{
-	return x + y * pubo.gridBlockDimensions;
-}
-
-uint particleBlockIndex(uint x, uint y)
-{
-	return x + y * pubo.particleBlockDimensions;
-}
-
 uint part1by1(uint x)
 {
 	x = (x | (x << 8)) & 0x00FF00FF;
@@ -121,6 +111,15 @@ uint lossyMorton(uint x, uint y)
 	return (((part1by1(x)) | (part1by1(y) << 1)) & 0xFFFFFFF0);
 }
 
+uint gridBlockIndex(uint x, uint y)
+{
+	return (part1by1(x) << 1) | part1by1(y);
+}
+
+uint particleBlockIndex(uint x, uint y)
+{
+	return x + y * pubo.particleBlockDimensions;
+}
 
 vec2 hash22(uvec2 q)
 {
